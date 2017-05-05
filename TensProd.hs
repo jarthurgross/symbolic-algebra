@@ -1,0 +1,227 @@
+module TensProd
+( Scalar(..)
+, OpAB(..)
+, Op(..)
+) where
+
+import Data.Ratio
+
+a = OpVar "A"
+b = OpVar "B"
+u = OpABVar "U"
+v = OpABVar "V"
+
+x = SVar "x"
+y = SVar "y"
+
+expr = a /+/ (a /+/ b) /+/ (2 */ (b /+/ a)) /+/ (a /+/ b) /*/ (b /+/ a) /+/ ((TraceA u) /+/ a) /*/ (b /+/ (TraceB (x */ v)))
+
+-- This module is supposed to model a twofold tensor product space of two
+-- identified algebras.
+
+class Algebra a where
+  (/+/) :: a -> a -> a
+  (/*/) :: a -> a -> a
+  (*/) :: Scalar -> a -> a
+  comm :: a -> a -> a
+  trace :: a -> Scalar
+  expand :: a -> a
+  expand = id
+  distributeScalars :: a -> a
+  distributeScalars = id
+  standardizeScalars :: a -> a
+  standardizeScalars = id
+
+-- Applies a function repeatedly until the last two function applications
+-- satisfy some convergence criterion, returning the last function application.
+-- Taken from http://stackoverflow.com/a/7443379/1236650
+converge :: (a -> a -> Bool) -> [a] -> a
+converge p (x:ys@(y:_))
+  | p x y     = y
+  | otherwise = converge p ys
+
+instance Algebra Op where
+  (AddOp ops) /+/ op = AddOp (ops ++ [op])
+  op /+/ (AddOp ops) = AddOp (op:ops)
+  op1 /+/ op2 = AddOp [op1, op2]
+  (MulOp ops) /*/ op = MulOp (ops ++ [op])
+  op /*/ (MulOp ops) = MulOp (op:ops)
+  op1 /*/ op2 = MulOp [op1, op2]
+  s1 */ (SMul s2 op) = SMul (s1 * s2) op
+  s */ op = SMul s op
+  comm op1 op2 = Comm op1 op2
+  trace op = Trace op
+
+  expand = AddOp . (map MulOp) . (expand' . distributeScalars)
+    -- expand' makes a list of lists of ops, where the interior lists represent
+    -- products and the exterior list represents a sum
+    where expand' (AddOp ops) = concat $ map expand' ops
+          expand' (MulOp ops) = map concat (sequence $ map expand' ops)
+          expand' op          = [[op]]
+
+  distributeScalars op = case op of
+    SMul s (AddOp ops) -> AddOp $ map (distributeScalars . (SMul s)) ops
+    AddOp ops          -> AddOp $ map distributeScalars ops
+    MulOp ops          -> MulOp $ map distributeScalars ops
+    Comm op1 op2       -> Comm (distributeScalars op1) (distributeScalars op2)
+    op                 -> op
+
+  standardizeScalars = converge (==) . iterate standardizeScalars'
+    where standardizeScalars' op = case op of
+            SMul s (SMul s' op')  -> SMul (MulS [s, s']) $ standardizeScalars' op'
+            SMul s (AddOp ops)    -> AddOp $ map (SMul s) (map standardizeScalars' ops)
+            SMul s op'            -> SMul s $ standardizeScalars' op'
+            MulOp ops             -> if ss == []
+                                     then MulOp $ map standardizeScalars' ops
+                                     else SMul (MulS ss) (MulOp $ map standardizeScalars' ops')
+              where collectScalar (SMul s op') acc = (s:(fst acc), op':(snd acc))
+                    collectScalar op' acc = (fst acc, op':(snd acc))
+                    (ss, ops') = foldr collectScalar ([], []) ops
+            AddOp ops             -> AddOp $ map standardizeScalars' ops
+            TraceA (SMulAB s op') -> SMul s (TraceA (standardizeScalars op'))
+            TraceB (SMulAB s op') -> SMul s (TraceB (standardizeScalars op'))
+            TraceA op'            -> TraceA (standardizeScalars op')
+            TraceB op'            -> TraceB (standardizeScalars op')
+            Comm (SMul s op1) op2 -> SMul s (Comm (standardizeScalars' op1) (standardizeScalars' op2))
+            Comm op1 (SMul s op2) -> SMul s (Comm (standardizeScalars' op1) (standardizeScalars' op2))
+            Comm op1 op2 -> Comm (standardizeScalars' op1) (standardizeScalars' op2)
+            op                    -> op
+
+instance Algebra OpAB where
+  (AddAB ops) /+/ op = AddAB (ops ++ [op])
+  op /+/ (AddAB ops) = AddAB (op:ops)
+  op1 /+/ op2 = AddAB [op1, op2]
+  (MulAB ops) /*/ op = MulAB (ops ++ [op])
+  op /*/ (MulAB ops) = MulAB (op:ops)
+  op1 /*/ op2 = MulAB [op1, op2]
+  s1 */ (SMulAB s2 op) = SMulAB (s1 * s2) op
+  s */ op = SMulAB s op
+  comm op1 op2 = CommAB op1 op2
+  trace op = TraceAB op
+
+  distributeScalars op = case op of
+    SMulAB s (AddAB ops) -> AddAB $ map (distributeScalars . (SMulAB s)) ops
+    AddAB ops            -> AddAB $ map distributeScalars ops
+    MulAB ops            -> MulAB $ map distributeScalars ops
+    CommAB op1 op2       -> CommAB (distributeScalars op1) (distributeScalars op2)
+    op                 -> op
+
+  expand = AddAB . (map MulAB) . (expand' . distributeScalars)
+    -- expand' makes a list of lists of ops, where the interior lists represent
+    -- products and the exterior list represents a sum
+    where expand' (AddAB ops) = concat $ map expand' ops
+          expand' (MulAB ops) = map concat (sequence $ map expand' ops)
+          expand' op = [[op]]
+
+  -- This function looks like a mess, but it does seem to distribute the
+  -- scalars, pull them out from inside traces and commutators, and collect them
+  -- to the left of operator products. I may be able to find a way to make this
+  -- more elegant, though.
+  standardizeScalars = converge (==) . iterate standardizeScalars'
+    where standardizeScalars' op = case op of
+            SMulAB s (SMulAB s' op')  -> SMulAB (MulS [s, s']) $ standardizeScalars' op'
+            SMulAB s (AddAB ops)      -> AddAB $ map (SMulAB s) (map standardizeScalars' ops)
+            SMulAB s op'              -> SMulAB s $ standardizeScalars' op'
+            MulAB ops                 -> if ss == []
+                                         then MulAB $ map standardizeScalars' ops
+                                         else SMulAB (MulS ss) (MulAB $ map standardizeScalars' ops')
+              where collectScalar (SMulAB s op') acc = (s:(fst acc), op':(snd acc))
+                    collectScalar op' acc = (fst acc, op':(snd acc))
+                    (ss, ops') = foldr collectScalar ([], []) ops
+            AddAB ops             -> AddAB $ map standardizeScalars' ops
+            CommAB (SMulAB s op1) op2 -> SMulAB s (CommAB (standardizeScalars' op1) (standardizeScalars' op2))
+            CommAB op1 (SMulAB s op2) -> SMulAB s (CommAB (standardizeScalars' op1) (standardizeScalars' op2))
+            CommAB op1 op2 -> CommAB (standardizeScalars' op1) (standardizeScalars' op2)
+            op                    -> op
+
+data Scalar = Trace Op
+            | TraceAB OpAB
+            | SVar String
+            | SConst Rational
+            | AddS [Scalar]
+            | MulS [Scalar]
+            | SNeg Scalar
+            | SInv Scalar
+            | Abs Scalar deriving (Eq)
+
+instance Num Scalar where
+  s1 + s2 = AddS [s1, s2]
+  s1 * s2 = MulS [s1, s2]
+  abs s = Abs s
+  signum s = MulS [SInv (Abs s), s]
+  fromInteger = SConst . fromInteger
+  negate s = SNeg s
+
+traceA :: OpAB -> Op
+traceA op = TraceA op
+
+traceB :: OpAB -> Op
+traceB op = TraceB op
+
+(><) :: Op -> Op -> OpAB
+op1 >< op2 = TProd op1 op2
+
+data Op = TraceA OpAB
+        | TraceB OpAB
+        | OpVar String
+        | Id
+        | SMul Scalar Op
+        | AddOp [Op]
+        | MulOp [Op]
+        | Comm Op Op deriving (Eq)
+
+data OpAB = TProd Op Op
+          | SMulAB Scalar OpAB
+          | OpABVar String
+          | IdAB
+          | AddAB [OpAB]
+          | MulAB [OpAB]
+          | CommAB OpAB OpAB deriving (Eq)
+
+instance Show Scalar where
+  show (Trace op) = showTrace "" op
+  show (TraceAB op) = showTrace "" op
+  show (SVar s) = s
+  show (SConst r)
+    | d == 1    = show n
+    | otherwise = "(" ++ (show n) ++ "/" ++ (show d) ++ ")"
+    where d = denominator r
+          n = numerator r
+  show (AddS xs) = showAssoc " + " xs
+  show (MulS xs) = showAssoc "⋅" xs
+  show (SNeg s) = "−" ++ (show s)
+  show (SInv s) = (show s) ++ "⁻¹"
+  show (Abs s) = "|" ++ (show s) ++ "|"
+
+instance Show Op where
+  show (TraceA op) = showTrace "ᴬ" op
+  show (TraceB op) = showTrace "ᴮ" op
+  show (OpVar s) = s
+  show Id = "𝟙"
+  show (SMul s op) = (show s) ++ "⋅" ++ (show op)
+  show (AddOp xs) = showAssoc " + " xs
+  show (MulOp xs) = showAssoc "⋅" xs
+  show (Comm op1 op2) = showComm op1 op2
+
+instance Show OpAB where
+  show (TProd op1 op2) = (show op1) ++ "⊗" ++ (show op2)
+  show (SMulAB s op) = (show s) ++ "⋅" ++ (show op)
+  show (OpABVar s) = s ++ "ᴬᴮ"
+  show IdAB = "𝟙ᴬᴮ"
+  show (AddAB xs) = showAssoc " + " xs
+  show (MulAB xs) = showAssoc "⋅" xs
+  show (CommAB op1 op2) = showComm op1 op2
+
+showTrace :: (Show a) => String -> a -> String
+showTrace dec x = "Tr" ++ dec ++ "[" ++ (show x) ++ "]"
+
+showAssoc :: (Show a) => String -> [a] -> String
+showAssoc op xs = "(" ++ (showAssoc' op xs) ++ ")"
+
+showAssoc' :: (Show a) => String -> [a] -> String
+showAssoc' op (x:y:zs) = (show x) ++ op ++ (showAssoc' op (y:zs))
+showAssoc' _ (x:[]) = show x
+showAssoc' _ [] = ""
+
+showComm :: (Show a) => a -> a -> String
+showComm x y = "[" ++ (show x) ++ ", " ++ (show y) ++ "]"
