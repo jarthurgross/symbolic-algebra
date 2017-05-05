@@ -5,6 +5,7 @@ module TensProd
 ) where
 
 import Data.Ratio
+import qualified Data.Map as Map
 
 a = OpVar "A"
 b = OpVar "B"
@@ -19,7 +20,7 @@ expr = a /+/ (a /+/ b) /+/ (2 */ (b /+/ a)) /+/ (a /+/ b) /*/ (b /+/ a) /+/ ((Tr
 -- This module is supposed to model a twofold tensor product space of two
 -- identified algebras.
 
-class Algebra a where
+class (Eq a) => Algebra a where
   (/+/) :: a -> a -> a
   (/*/) :: a -> a -> a
   (*/) :: Scalar -> a -> a
@@ -31,6 +32,8 @@ class Algebra a where
   distributeScalars = id
   standardizeScalars :: a -> a
   standardizeScalars = id
+  collectScalars :: a -> a
+  collectScalars = id
 
 -- Applies a function repeatedly until the last two function applications
 -- satisfy some convergence criterion, returning the last function application.
@@ -87,6 +90,14 @@ instance Algebra Op where
             Comm op1 op2 -> Comm (standardizeScalars' op1) (standardizeScalars' op2)
             op                    -> op
 
+  -- Consider writing with aggregateAL:
+  -- http://hackage.haskell.org/package/hinduce-missingh-0.0.0.0/docs/Data-List-HIUtils.html#v%3aaggregateAL
+  collectScalars (AddOp ops) = AddOp $ map (\(k, v) -> SMul (AddS v) k) collectedPairs
+    where collectedPairs = Map.toList $ Map.fromListWith (++) pairs
+          pairs = foldr (\x acc -> (scalOpPair x):acc) [] ops
+          scalOpPair (SMul s op) = (op, [s])
+          scalOpPair op          = (op, [SConst 1])
+
 instance Algebra OpAB where
   (AddAB ops) /+/ op = AddAB (ops ++ [op])
   op /+/ (AddAB ops) = AddAB (op:ops)
@@ -142,7 +153,7 @@ data Scalar = Trace Op
             | MulS [Scalar]
             | SNeg Scalar
             | SInv Scalar
-            | Abs Scalar deriving (Eq)
+            | Abs Scalar deriving (Eq, Ord)
 
 instance Num Scalar where
   s1 + s2 = AddS [s1, s2]
@@ -168,7 +179,7 @@ data Op = TraceA OpAB
         | SMul Scalar Op
         | AddOp [Op]
         | MulOp [Op]
-        | Comm Op Op deriving (Eq)
+        | Comm Op Op deriving (Eq, Ord)
 
 data OpAB = TProd Op Op
           | SMulAB Scalar OpAB
@@ -176,7 +187,7 @@ data OpAB = TProd Op Op
           | IdAB
           | AddAB [OpAB]
           | MulAB [OpAB]
-          | CommAB OpAB OpAB deriving (Eq)
+          | CommAB OpAB OpAB deriving (Eq, Ord)
 
 instance Show Scalar where
   show (Trace op) = showTrace "" op
