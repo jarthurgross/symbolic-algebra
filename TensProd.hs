@@ -34,6 +34,8 @@ class (Eq a) => Algebra a where
   standardizeScalars = id
   collectScalars :: a -> a
   collectScalars = id
+  simplifyScalars :: a -> a
+  simplifyScalars = id
 
 -- Applies a function repeatedly until the last two function applications
 -- satisfy some convergence criterion, returning the last function application.
@@ -98,6 +100,19 @@ instance Algebra Op where
           scalOpPair (SMul s op) = (op, [s])
           scalOpPair op          = (op, [SConst 1])
 
+  simplifyScalars = simplifyScalars' . collectScalars . standardizeScalars
+    where simplifyScalars' (SMul s op) = SMul (collectConsts $ expandScalar s) op
+          simplifyScalars' (AddOp ops) = AddOp $ map simplifyScalars' ops
+          -- The below is kind of weird, since I am only applying
+          -- simplifyScalars' after collectScalars, so there shouldn't be any
+          -- scalars left in the operator product.
+          -- Also I plan to call this after expand, so the only SMuls should be
+          -- inside the first (and only) AddOp, so much of the following could
+          -- be eliminated if I restrict myself to that use case.
+          simplifyScalars' (MulOp ops) = MulOp $ map simplifyScalars' ops
+          simplifyScalars' (Comm op1 op2) = Comm (simplifyScalars' op1) (simplifyScalars' op2)
+          simplifyScalars' op = op
+
 instance Algebra OpAB where
   (AddAB ops) /+/ op = AddAB (ops ++ [op])
   op /+/ (AddAB ops) = AddAB (op:ops)
@@ -121,7 +136,7 @@ instance Algebra OpAB where
     -- expand' makes a list of lists of ops, where the interior lists represent
     -- products and the exterior list represents a sum
     where expand' (AddAB ops) = concat $ map expand' ops
-          expand' (MulAB ops) = map concat (sequence $ map expand' ops)
+          expand' (MulAB ops) = map concat $ sequence $ map expand' ops
           expand' op = [[op]]
 
   -- This function looks like a mess, but it does seem to distribute the
@@ -162,6 +177,29 @@ instance Num Scalar where
   signum s = MulS [SInv (Abs s), s]
   fromInteger = SConst . fromInteger
   negate s = SNeg s
+
+expandScalar :: Scalar -> Scalar
+expandScalar = AddS . (map MulS) . expandScalar'
+  where expandScalar' (AddS ss) = concat $ map expandScalar' ss
+        expandScalar' (MulS ss) = map concat $ sequence $ map expandScalar' ss
+        expandScalar' s = [[s]]
+
+-- This function currently has a problem if one of the factors in a product is
+-- itself a product. This isn't an issue if expandScalar is called first, as it
+-- never has products inside products, but some thought should be given to this.
+collectConsts :: Scalar -> Scalar
+collectConsts (MulS ss) = joinConstVar constVarList
+  where joinConstVar ([], []) = SConst 1
+        joinConstVar ([], vs) = MulS vs
+        joinConstVar (cs, vs) = MulS $ (SConst $ foldr (*) 1 cs):vs
+        constVarList = foldr separateConsts ([], []) $ map collectConsts ss
+        separateConsts (SConst c) (cs, vs) = (c:cs, vs)
+        separateConsts v (cs, vs) = (cs, v:vs)
+collectConsts (AddS ss) = AddS $ map collectConsts ss
+collectConsts (SNeg s) = SNeg $ collectConsts s
+collectConsts (SInv s) = SInv $ collectConsts s
+collectConsts (Abs s) = Abs $ collectConsts s
+collectConsts s = s
 
 traceA :: OpAB -> Op
 traceA op = TraceA op
