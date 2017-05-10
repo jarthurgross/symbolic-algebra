@@ -20,6 +20,28 @@ expr = a /+/ (a /+/ b) /+/ (2 */ (b /+/ a)) /+/ (a /+/ b) /*/ (b /+/ a) /+/ ((Tr
 -- This module is supposed to model a twofold tensor product space of two
 -- identified algebras.
 
+-- The OpAB in the list shouldn't have any AddAB terms (consider using
+-- LiquidHaskell to enforce this)
+raiseSumsList :: OpAB -> [OpAB]
+raiseSumsList (MulAB ops) = map MulAB $ sequence $ map raiseSumsList ops
+raiseSumsList (AddAB ops) = concat $ map raiseSumsList ops
+raiseSumsList (SMulAB s op) = map (SMulAB s) $ raiseSumsList op
+raiseSumsList op = [op]
+
+-- The OpAB here shouldn't have any sums (again, consider refinement types)
+-- For now we just consider sums and commutators as atoms
+separateScalars :: OpAB -> ([Scalar], [OpAB])
+separateScalars (SMulAB s op) = (s:ss, ops)
+  where (ss, ops) = separateScalars op
+separateScalars (MulAB ops) = concatPairLists $ map separateScalars ops
+  where concatPairLists = foldr (\(s1s, op1s) (s2s, op2s) -> (s1s ++ s2s, op1s ++ op2s)) ([], [])
+separateScalars op = ([], [op])
+
+canonPartTrace :: Op -> Op
+canonPartTrace (TraceA op) = AddOp $ map (\(ss, ops) -> SMul (MulS ss) (TraceA $ MulAB ops)) $ map separateScalars $ raiseSumsList op
+canonPartTrace (TraceB op) = AddOp $ map (\(ss, ops) -> SMul (MulS ss) (TraceB $ MulAB ops)) $ map separateScalars $ raiseSumsList op
+canonPartTrace op = op
+
 class (Eq a) => Algebra a where
   (/+/) :: a -> a -> a
   (/*/) :: a -> a -> a
