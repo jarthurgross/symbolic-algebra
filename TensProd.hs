@@ -5,6 +5,7 @@ module TensProd
 ) where
 
 import Data.Ratio
+import Data.List
 import qualified Data.Map as Map
 
 a = OpVar "A"
@@ -17,8 +18,61 @@ y = SVar "y"
 
 expr = a /+/ (a /+/ b) /+/ (2 */ (b /+/ a)) /+/ (a /+/ b) /*/ (b /+/ a) /+/ ((TraceA u) /+/ a) /*/ (b /+/ (TraceB (x */ v)))
 
+sExpr = MulS [AddS [x, 1], AddS[y, MulS [x, y]], 5]
+
 -- This module is supposed to model a twofold tensor product space of two
 -- identified algebras.
+
+-- It's currently kind of a mess. The simplification flow I have in mind is
+--     canonicizeScalars $ collectScalars $ standardizeScalars $ expand expr
+-- to get things in a somewhat canonical form.
+simplify :: Op -> Op
+simplify = canonicizeScalars . collectScalars . standardizeScalars . expand
+
+-- This guy should take an Op that is a sum of terms that are products of
+-- scalars and a product of Ops, where the Ops in these products contain no
+-- sums, no scalar multiplications, and no further products. Furthermore, any
+-- OpABs inside partial traces should conform to the same pattern (a single
+-- product of OpABs with no internal sums, scalar multiplications, or products).
+-- As it is, there seems to be some inconsistency with how I handle products
+-- with only one factor. Sometimes they are simplified to the Op(AB) without the
+-- wrapping product, and sometimes they are left in the product. I should
+-- probably standardize this.
+canonicizeScalars :: Op -> Op
+canonicizeScalars (AddOp ops) = AddOp $ map canonicizeScalars ops
+canonicizeScalars (SMul s op) = SMul (constantCollect $ scalarArrProd $ scalarExpand s) op
+canonicizeScalars op = op
+
+scalarExpand :: Scalar -> Scalar
+scalarExpand = AddS . (map MulS) . scalarExpand'
+  where scalarExpand' (AddS ss) = concat $ map scalarExpand' ss
+        scalarExpand' (MulS ss) = map concat $ sequence $ map scalarExpand' ss
+        scalarExpand' s = [[s]]
+
+-- This function assumes we have a sum of products of scalars (with no further
+-- sums or products). It is meant to sort the products so the constant is in
+-- front and the variables are arranged alphabetically.
+scalarArrProd :: Scalar -> Scalar
+scalarArrProd (AddS ss) = AddS $ map scalarArrProd ss
+scalarArrProd (MulS ss) = MulS $ scalarArrProd' ss
+scalarArrProd s = s
+
+-- Scalar symbols are crudely sorted by their show strings.
+scalarArrProd' :: [Scalar] -> [Scalar]
+scalarArrProd' factors = (SConst $ product cs):(sortOn show ss)
+  where collectConsts (SConst c) acc = (c:(fst acc), snd acc)
+        collectConsts s acc = (fst acc, s:(snd acc))
+        (cs, ss) = foldr collectConsts ([], []) factors
+
+-- Assumes products have single constant term which appears at beginning and
+-- the variable terms are sorted canonically.
+constantCollect :: Scalar -> Scalar
+constantCollect (AddS ss) = AddS $ map (\(k, v) -> MulS $ (SConst $ sum v):k) collectedPairs
+  where collectedPairs = Map.toList $ Map.fromListWith (++) pairs
+        pairs = foldr (\x acc -> (constProdPair x):acc) [] ss
+        constProdPair (MulS ((SConst c):ss')) = (ss', [c])
+        constProdPair (MulS ss') = (ss', [1 % 1])
+        constProdPair s = ([s], [1 % 1])
 
 -- The OpAB in the list shouldn't have any AddAB terms (consider using
 -- LiquidHaskell to enforce this)
@@ -182,6 +236,8 @@ instance Algebra OpAB where
             CommAB op1 op2 -> CommAB (standardizeScalars' op1) (standardizeScalars' op2)
             op                    -> op
 
+-- In the future, consider using cyclotomic numbers for SConst, implemented in
+-- package Data.Complex.Cyclotomic
 data Scalar = Trace Op
             | TraceAB OpAB
             | SVar String
