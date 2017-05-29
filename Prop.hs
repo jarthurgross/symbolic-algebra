@@ -114,6 +114,12 @@ tautology p = and $ (map (flip eval) vs) <*> [p]
   where vs = atomValsToFn <$> Map.fromAscList <$> (zip as) <$> allValuations as
         as = atoms p
 
+unsatisfiable :: Prop -> Bool
+unsatisfiable = tautology . Not
+
+satisfiable :: Prop -> Bool
+satisfiable = not . unsatisfiable
+
 allValuations :: [Prop] -> [[Bool]]
 allValuations as = sequence $ replicate (length as) [False, True]
 
