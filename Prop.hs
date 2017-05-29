@@ -63,12 +63,13 @@ p <=> q = Iff p q
 -- to the length of each proposition's representation, but it gets the job done.
 instance Show TruthTable where
   show tt = intercalate "\n" $ header:divLine:rows
-    where atomHeader = spaceSep $ map show $ tableAtoms tt
+    where atomHeader = intercalate "│" $ map show $ tableAtoms tt
           propHeader = spaceSep $ map show $ tableProps tt
-          header = atomHeader ++ " │ " ++ propHeader
-          divLine = (makeBar atomHeader) ++ "─┼─" ++ (makeBar propHeader)
-          makeBar s = replicate (length s) '─'
-          rowFn val = (spaceSep $ map boolShow $ fst val) ++ " │ " ++
+          header = atomHeader ++ " ║ " ++ propHeader
+          divLine = atomBar ++ "═╬═" ++ (makeBar propHeader)
+          atomBar = intercalate "╪" $ replicate (length $ tableAtoms tt) "═"
+          makeBar s = replicate (length s) '═'
+          rowFn val = (intercalate "│" $ map boolShow $ fst val) ++ " ║ " ++
                       (spaceSep $ map boolShow $ snd val)
           rows = map rowFn $ valuations tt
           boolShow True = "⊤" 
