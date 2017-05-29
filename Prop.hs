@@ -126,3 +126,15 @@ allValuations as = sequence $ replicate (length as) [False, True]
 
 atomValsToFn :: Map.Map Prop Bool -> (Prop -> Bool)
 atomValsToFn = flip (Map.findWithDefault False)
+
+-- Should refine the first argument to be an Atom
+subs :: Prop -> Prop -> Prop -> Prop
+subs _ _ T = T
+subs _ _ F = F
+subs (Atom s) asub (Atom s') = if s == s' then asub else (Atom s')
+subs a asub (Not p) = Not $ subs a asub p
+subs a asub (And p q) = And (subs a asub p) (subs a asub q)
+subs a asub (Or p q) = Or (subs a asub p) (subs a asub q)
+subs a asub (Imp p q) = Imp (subs a asub p) (subs a asub q)
+subs a asub (Iff p q) = Iff (subs a asub p) (subs a asub q)
+subs _ _ _ = error "Cannot substitute for non-atom"
