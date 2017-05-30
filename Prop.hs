@@ -145,3 +145,67 @@ subs a asub (Or p q) = Or (subs a asub p) (subs a asub q)
 subs a asub (Imp p q) = Imp (subs a asub p) (subs a asub q)
 subs a asub (Iff p q) = Iff (subs a asub p) (subs a asub q)
 subs _ _ _ = error "Cannot substitute for non-atom"
+
+elimConsts :: Prop -> Prop
+elimConsts (Const b) = Const b
+elimConsts (Atom s) = Atom s
+elimConsts (Not (Const b)) = Const $ not b
+elimConsts (Not p) = elimConsts' $ Not $ elimConsts p
+elimConsts (And (Const False) p) = Const False
+elimConsts (And p (Const False)) = Const False
+elimConsts (And (Const True) p) = elimConsts p
+elimConsts (And p (Const True)) = elimConsts p
+elimConsts (And p q) = elimConsts' $ And (elimConsts p) (elimConsts q)
+elimConsts (Or p (Const True)) = Const True
+elimConsts (Or (Const True) p) = Const True
+elimConsts (Or p (Const False)) = p
+elimConsts (Or (Const False) p) = p
+elimConsts (Or p q) = elimConsts' $ Or (elimConsts p) (elimConsts q)
+elimConsts (Imp (Const True) p) = elimConsts p
+elimConsts (Imp (Const False) p) = Const True
+elimConsts (Imp p (Const True)) = Const True
+elimConsts (Imp p (Const False)) = elimConsts $ Not p
+elimConsts (Imp p q) = elimConsts' $ Imp (elimConsts p) (elimConsts q)
+elimConsts (Iff (Const True) p) = elimConsts p
+elimConsts (Iff p (Const True)) = elimConsts p
+elimConsts (Iff (Const False) p) = elimConsts' $ Not $ elimConsts p
+elimConsts (Iff p (Const False)) = elimConsts' $ Not $ elimConsts p
+elimConsts (Iff p q) = elimConsts' $ Iff (elimConsts p) (elimConsts q)
+
+-- This function assumes sub-expressions in binary operators have already had
+-- constants eliminated (or are in fact simply constants)
+elimConsts' :: Prop -> Prop
+elimConsts' (Not (Const b)) = Const $ not b
+elimConsts' (And (Const False) p) = Const False
+elimConsts' (And p (Const False)) = Const False
+elimConsts' (And (Const True) p) = p
+elimConsts' (And p (Const True)) = p
+elimConsts' (Or p (Const True)) = Const True
+elimConsts' (Or (Const True) p) = Const True
+elimConsts' (Or p (Const False)) = p
+elimConsts' (Or (Const False) p) = p
+elimConsts' (Imp p (Const True)) = Const True
+elimConsts' (Imp p (Const False)) = elimConsts' $ Not p
+elimConsts' (Imp (Const True) p) = p
+elimConsts' (Imp (Const False) p) = Const True
+elimConsts' (Iff (Const False) p) = elimConsts' $ Not p
+elimConsts' (Iff p (Const False)) = elimConsts' $ Not p
+elimConsts' (Iff (Const True) p) = p
+elimConsts' (Iff p (Const True)) = p
+elimConsts' p = p
+
+nnf = nnf' . elimConsts
+
+-- Assumes all constants have been eliminated, or else the proposition is only
+-- a constant
+nnf' :: Prop -> Prop
+nnf' (Not (Not p)) = nnf' p
+nnf' (Not (And p q)) = nnf' $ Or (Not p) (Not q)
+nnf' (Not (Or p q)) = nnf' $ And (Not p) (Not q)
+nnf' (Not (Imp p q)) = nnf' $ And p (Not q)
+nnf' (Not (Iff p q)) = Or (nnf' $ And p (Not q)) (nnf' $ And (Not q) p)
+nnf' (And p q) = And (nnf' p) (nnf' q)
+nnf' (Or p q) = Or (nnf' p) (nnf' q)
+nnf' (Imp p q) = Or (nnf' $ Not p) (nnf' q)
+nnf' (Iff p q) = Or (nnf' $ And p q) (nnf' $ And (Not p) (Not q))
+nnf' p = p
