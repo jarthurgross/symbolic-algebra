@@ -200,7 +200,7 @@ elimConsts' p = p
 nnf = nnf' . elimConsts
 
 -- Assumes all constants have been eliminated, or else the proposition is only
--- a constant
+-- a constant (maybe this could be expressed using refinement types?)
 nnf' :: Prop -> Prop
 nnf' (Not (Not p)) = nnf' p
 nnf' (Not (And p q)) = nnf' $ Or (Not p) (Not q)
@@ -213,7 +213,7 @@ nnf' (Imp p q) = Or (nnf' $ Not p) (nnf' q)
 nnf' (Iff p q) = Or (nnf' $ And p q) (nnf' $ And (Not p) (Not q))
 nnf' p = p
 
--- Construct an expression's disjunctive normal form from its truth table
+-- Put an expression in disjunctive normal form using its truth table
 ttdnf :: Prop -> Prop
 ttdnf p = sum $ map product disjuncts
   where tt = truthTable [p]
@@ -222,3 +222,7 @@ ttdnf p = sum $ map product disjuncts
         atomValPairs = map (zip as) satAtomVals
         satAtomVals = map fst $ filter ((== True) . head . snd) $ valuations tt
         disjuncts = map (map (\(a, b) -> if b then a else Not a)) atomValPairs
+
+-- Put an expression in conjunctive normal form using its truth table
+ttcnf :: Prop -> Prop
+ttcnf = nnf' . Not . ttdnf . Not
