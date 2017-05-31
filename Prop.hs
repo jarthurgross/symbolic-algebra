@@ -45,9 +45,12 @@ instance Num Prop where
   p1 + p2 = Or p1 p2
   abs p = Const True
   signum p = p
-  -- fromInteger is included for completeness, but it doesn't make a whole lot
-  -- of sense (i.e. fromInteger (1 * 1) == (fromInteger 1) * (fromInteger 1),
-  -- but fromInteger (1 - 1) /= (fromInteger 1) - (fromInteger 1))
+  -- fromInteger doesn't make a whole lot of sense for some applications
+  -- (i.e. fromInteger (1 * 1) == (fromInteger 1) * (fromInteger 1), but
+  -- fromInteger (1 - 1) /= (fromInteger 1) - (fromInteger 1)), but it is
+  -- important to define it this way so that sum and product work as expected,
+  -- since Const False is the additive (Or) identity, and Const True is the
+  -- multiplicitive (And) identity.
   fromInteger n
     | n `mod` 2 == 0 = Const False
     | otherwise      = Const True
@@ -209,3 +212,13 @@ nnf' (Or p q) = Or (nnf' p) (nnf' q)
 nnf' (Imp p q) = Or (nnf' $ Not p) (nnf' q)
 nnf' (Iff p q) = Or (nnf' $ And p q) (nnf' $ And (Not p) (Not q))
 nnf' p = p
+
+-- Construct an expression's disjunctive normal form from its truth table
+ttdnf :: Prop -> Prop
+ttdnf p = sum $ map product disjuncts
+  where tt = truthTable [p]
+        as = tableAtoms tt
+        pVals = map (head . snd) $ valuations tt
+        atomValPairs = map (zip as) satAtomVals
+        satAtomVals = map fst $ filter ((== True) . head . snd) $ valuations tt
+        disjuncts = map (map (\(a, b) -> if b then a else Not a)) atomValPairs
