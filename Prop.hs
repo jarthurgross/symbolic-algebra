@@ -226,3 +226,20 @@ ttdnf p = sum $ map product disjuncts
 -- Put an expression in conjunctive normal form using its truth table
 ttcnf :: Prop -> Prop
 ttcnf = nnf' . Not . ttdnf . Not
+
+dnf :: Prop -> Prop
+dnf = sum . (map product) . (filter noContradictions) . disjunctList . nnf
+
+noContradictions :: [Prop] -> Bool
+noContradictions ps = [] == Ordered.isect pos neg
+  where (pos, neg) = foldr sortPosNeg ([], []) ps
+        sortPosNeg (Not (Atom s)) acc = (fst acc, (Atom s):(snd acc))
+        sortPosNeg (Atom s) acc = ((Atom s):(fst acc), snd acc)
+
+disjunctList :: Prop -> [[Prop]]
+-- I think the line below is giving me problems, since it doesn't result in a
+-- sorted list of disjuncts with duplicates removed, which is what I want.
+disjunctList (And p q) = map listUnion $ sequence $ map disjunctList [p, q]
+  where listUnion = foldr Ordered.union []
+disjunctList (Or p q) = Ordered.union (disjunctList p) (disjunctList q)
+disjunctList p = [[p]]
