@@ -206,7 +206,7 @@ nnf' (Not (Not p)) = nnf' p
 nnf' (Not (And p q)) = nnf' $ Or (Not p) (Not q)
 nnf' (Not (Or p q)) = nnf' $ And (Not p) (Not q)
 nnf' (Not (Imp p q)) = nnf' $ And p (Not q)
-nnf' (Not (Iff p q)) = Or (nnf' $ And p (Not q)) (nnf' $ And (Not q) p)
+nnf' (Not (Iff p q)) = Or (nnf' $ And p (Not q)) (nnf' $ And (Not p) q)
 nnf' (And p q) = And (nnf' p) (nnf' q)
 nnf' (Or p q) = Or (nnf' p) (nnf' q)
 nnf' (Imp p q) = Or (nnf' $ Not p) (nnf' q)
@@ -236,6 +236,11 @@ noContradictions ps = [] == Ordered.isect pos neg
         sortPosNeg (Not (Atom s)) acc = (fst acc, (Atom s):(snd acc))
         sortPosNeg (Atom s) acc = ((Atom s):(fst acc), snd acc)
 
+-- The next optimization waiting to be done is detecting when a sub-disjunct
+-- is being added to the list and eliminating all super-disjuncts at that time.
+-- Making this efficient seems like it will involve understanding how
+-- Ordered.insertSet works, and might be helped by providing an explicit
+-- ordering on ordered lists of Props.
 disjunctList :: Prop -> [[Prop]]
 -- ordCartProd looks arcane, but it is meant to do a list Cartesian product
 -- [[[Prop]]] -> [[Prop]] where the elements are arranged in sorted order and
@@ -246,3 +251,5 @@ disjunctList (And p q) = ordCartProd $ map disjunctList [p, q]
 disjunctList (Or p q) = Ordered.union (disjunctList p) (disjunctList q)
 disjunctList p = [[p]]
 
+cnf :: Prop -> Prop
+cnf = nnf' . Not . dnf . Not
