@@ -251,7 +251,8 @@ ttcnf :: Prop -> Prop
 ttcnf = nnf' . Not . ttdnf . Not
 
 dnf :: Prop -> Prop
-dnf = sum . (map product) . (filter noContradictions) . disjunctList . nnf
+dnf = sum . (map (product :: [Prop] -> Prop)) . (filter noContradictions) .
+      disjunctList . nnf
 
 noContradictions :: [Prop] -> Bool
 noContradictions ps = [] == Ordered.isect pos neg
@@ -276,6 +277,8 @@ disjunctList (And p q) = removeSuperDisjuncts $
         makeDisjunct = foldr Ordered.union []
 disjunctList (Or p q) = removeSuperDisjuncts $
                         Ordered.union (disjunctList p) (disjunctList q)
+disjunctList (Const True) = [[]]
+disjunctList (Const False) = []
 disjunctList p = [[p]]
 
 removeSuperDisjuncts :: [[Prop]] -> [[Prop]]
