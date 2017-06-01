@@ -236,20 +236,29 @@ noContradictions ps = [] == Ordered.isect pos neg
         sortPosNeg (Not (Atom s)) acc = (fst acc, (Atom s):(snd acc))
         sortPosNeg (Atom s) acc = ((Atom s):(fst acc), snd acc)
 
--- The next optimization waiting to be done is detecting when a sub-disjunct
--- is being added to the list and eliminating all super-disjuncts at that time.
+-- The next optimization waiting to be done is detecting when a sub disjunct
+-- is being added to the list and eliminating all super disjuncts at that time.
 -- Making this efficient seems like it will involve understanding how
 -- Ordered.insertSet works, and might be helped by providing an explicit
 -- ordering on ordered lists of Props.
+-- Currently we remove super disjuncts at each joining step. Not sure if that's
+-- the most efficient or not, but at least it appears to work for us.
 disjunctList :: Prop -> [[Prop]]
 -- ordCartProd looks arcane, but it is meant to do a list Cartesian product
 -- [[[Prop]]] -> [[Prop]] where the elements are arranged in sorted order and
 -- have duplicates removed, and the elements themselves are internally sorted.
-disjunctList (And p q) = ordCartProd $ map disjunctList [p, q]
+disjunctList (And p q) = removeSuperDisjuncts $
+                         ordCartProd $ map disjunctList [p, q]
   where ordCartProd = (foldr (Ordered.insertSet . makeDisjunct) []) . sequence
         makeDisjunct = foldr Ordered.union []
-disjunctList (Or p q) = Ordered.union (disjunctList p) (disjunctList q)
+disjunctList (Or p q) = removeSuperDisjuncts $
+                        Ordered.union (disjunctList p) (disjunctList q)
 disjunctList p = [[p]]
+
+removeSuperDisjuncts :: [[Prop]] -> [[Prop]]
+removeSuperDisjuncts ds = filter (noSubDisjuncts ds) ds
+  where noSubDisjuncts ds d = not $ any (strictSupset d) ds
+        strictSupset x y = (x /= y) && (Ordered.subset y x)
 
 cnf :: Prop -> Prop
 cnf = nnf' . Not . dnf . Not
