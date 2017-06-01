@@ -1,3 +1,26 @@
+module Prop
+( TruthTable(..)
+, Prop(..)
+, (==>)
+, (<=>)
+, (|=>)
+, atoms
+, eval
+, truthTable
+, tautology
+, unsatisfiable
+, satisfiable
+, allValuations
+, atomValsToFn
+, subs
+, elimConsts
+, nnf
+, ttdnf
+, ttcnf
+, dnf
+, cnf
+) where
+
 import Data.List
 import qualified Data.Map as Map
 import qualified Data.List.Ordered as Ordered
