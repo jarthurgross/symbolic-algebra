@@ -3,6 +3,8 @@ import Test.QuickCheck
 import Control.Monad
 
 prop_nnf = forAll prop $ (\p -> tautology $ p <=> (nnf p))
+prop_ttdnf = forAll prop $ (\p -> tautology $ p <=> (ttdnf p))
+prop_ttcnf = forAll prop $ (\p -> tautology $ p <=> (ttcnf p))
 prop_dnf = forAll prop $ (\p -> tautology $ p <=> (dnf p))
 prop_cnf = forAll prop $ (\p -> tautology $ p <=> (cnf p))
 
