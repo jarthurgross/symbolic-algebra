@@ -237,9 +237,12 @@ noContradictions ps = [] == Ordered.isect pos neg
         sortPosNeg (Atom s) acc = ((Atom s):(fst acc), snd acc)
 
 disjunctList :: Prop -> [[Prop]]
--- I think the line below is giving me problems, since it doesn't result in a
--- sorted list of disjuncts with duplicates removed, which is what I want.
-disjunctList (And p q) = map listUnion $ sequence $ map disjunctList [p, q]
-  where listUnion = foldr Ordered.union []
+-- ordCartProd looks arcane, but it is meant to do a list Cartesian product
+-- [[[Prop]]] -> [[Prop]] where the elements are arranged in sorted order and
+-- have duplicates removed, and the elements themselves are internally sorted.
+disjunctList (And p q) = ordCartProd $ map disjunctList [p, q]
+  where ordCartProd = (foldr (Ordered.insertSet . makeDisjunct) []) . sequence
+        makeDisjunct = foldr Ordered.union []
 disjunctList (Or p q) = Ordered.union (disjunctList p) (disjunctList q)
 disjunctList p = [[p]]
+
