@@ -8,15 +8,20 @@ import Data.Ratio
 import Data.List
 import qualified Data.Map as Map
 
-a = OpVar "A"
-b = OpVar "B"
-u = OpABVar "U"
-v = OpABVar "V"
+c = OpVar "c"
+b = OpVar "b"
+rho = OpVar "ρ"
+sigma = OpVar "σ"
+
+u = (TProd Id Id) /+/ (sqrtdt */
+    ((TProd c $ Dag b) /+/ ((-1) */ (TProd (Dag c) b)))) /+/
+    (((sqrtdt * sqrtdt) * (SConst $ 1%2)) */
+    (((TProd c $ Dag b) /+/ ((-1) */ (TProd (Dag c) b))) /*/
+    ((TProd c $ Dag b) /+/ ((-1) */ (TProd (Dag c) b)))))
 
 x = SVar "x"
 y = SVar "y"
-
-expr = a /+/ (a /+/ b) /+/ (2 */ (b /+/ a)) /+/ (a /+/ b) /*/ (b /+/ a) /+/ ((TraceA u) /+/ a) /*/ (b /+/ (TraceB (x */ v)))
+sqrtdt = SVar "√Δ𝜏"
 
 sExpr = MulS [AddS [x, 1], AddS[y, MulS [x, y]], 5]
 
@@ -137,6 +142,9 @@ instance Algebra Op where
     -- expand' makes a list of lists of ops, where the interior lists represent
     -- products and the exterior list represents a sum
     where expand' (AddOp ops) = concat $ map expand' ops
+          expand' (SMul s (MulOp (op:ops))) = expand' $ MulOp $
+                                              (distributeScalars $ SMul s op):
+                                              ops
           expand' (MulOp ops) = map concat (sequence $ map expand' ops)
           expand' op          = [[op]]
 
@@ -213,6 +221,9 @@ instance Algebra OpAB where
     -- products and the exterior list represents a sum
     where expand' (AddAB ops) = concat $ map expand' ops
           expand' (MulAB ops) = map concat $ sequence $ map expand' ops
+          expand' (SMulAB s (MulAB (op:ops))) = expand' $ MulAB $
+                                                (distributeScalars $
+                                                SMulAB s op):ops
           expand' op = [[op]]
 
   -- This function looks like a mess, but it does seem to distribute the
