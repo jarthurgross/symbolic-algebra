@@ -133,7 +133,7 @@ instance Algebra Op where
   comm op1 op2 = Comm op1 op2
   trace op = Trace op
 
-  expand = AddOp . (map MulOp) . (expand' . distributeScalars)
+  expand = AddOp . (map MulOp) . expand' . distributeScalars . pushDownDag
     -- expand' makes a list of lists of ops, where the interior lists represent
     -- products and the exterior list represents a sum
     where expand' (AddOp ops) = concat $ map expand' ops
@@ -208,7 +208,7 @@ instance Algebra OpAB where
     CommAB op1 op2       -> CommAB (distributeScalars op1) (distributeScalars op2)
     op                 -> op
 
-  expand = AddAB . (map MulAB) . (expand' . distributeScalars)
+  expand = AddAB . (map MulAB) . expand' . distributeScalars . pushDownDagAB
     -- expand' makes a list of lists of ops, where the interior lists represent
     -- products and the exterior list represents a sum
     where expand' (AddAB ops) = concat $ map expand' ops
@@ -292,6 +292,7 @@ data Op = TraceA OpAB
         | TraceB OpAB
         | OpVar String
         | Id
+        | Dag Op
         | SMul Scalar Op
         | AddOp [Op]
         | MulOp [Op]
@@ -301,9 +302,50 @@ data OpAB = TProd Op Op
           | SMulAB Scalar OpAB
           | OpABVar String
           | IdAB
+          | DagAB OpAB
           | AddAB [OpAB]
           | MulAB [OpAB]
           | CommAB OpAB OpAB deriving (Eq, Ord)
+
+-- Note: our scalars are currently all real
+pushDownDagAB :: OpAB -> OpAB
+pushDownDagAB (DagAB op) = case op of
+  TProd op1 op2  -> TProd (pushDownDag $ Dag op1) (pushDownDag $ Dag op2)
+  SMulAB s op'   -> SMulAB s $ pushDownDagAB $ DagAB op'
+  OpABVar s      -> DagAB $ OpABVar s
+  IdAB           -> IdAB
+  DagAB op'      -> pushDownDagAB op'
+  AddAB ops      -> AddAB $ map (pushDownDagAB . DagAB) ops
+  MulAB ops      -> MulAB $ map (pushDownDagAB . DagAB) $ reverse ops
+  CommAB op1 op2 -> CommAB (pushDownDagAB $ DagAB op1)
+                    (pushDownDagAB $ DagAB op2)
+pushDownDagAB (TProd op1 op2) = TProd (pushDownDag op1) (pushDownDag op2)
+pushDownDagAB (SMulAB s op) = SMulAB s $ pushDownDagAB op
+pushDownDagAB (OpABVar s) = OpABVar s
+pushDownDagAB IdAB = IdAB
+pushDownDagAB (AddAB ops) = AddAB $ map pushDownDagAB ops
+pushDownDagAB (MulAB ops) = MulAB $ map pushDownDagAB ops
+pushDownDagAB (CommAB op1 op2) = CommAB (pushDownDagAB op1) (pushDownDagAB op2)
+
+pushDownDag :: Op -> Op
+pushDownDag (Dag op) = case op of
+  TraceA op'   -> TraceA $ pushDownDagAB $ DagAB op'
+  TraceB op'   -> TraceB $ pushDownDagAB $ DagAB op'
+  OpVar s      -> Dag $ OpVar s
+  Id           -> Id
+  Dag op'      -> pushDownDag op'
+  SMul s op'   -> SMul s $ pushDownDag $ Dag op'
+  AddOp ops    -> AddOp $ map (pushDownDag . Dag) ops
+  MulOp ops    -> MulOp $ map (pushDownDag . Dag) $ reverse ops
+  Comm op1 op2 -> Comm (pushDownDag $ Dag op1) (pushDownDag $ Dag op2)
+pushDownDag (TraceA op) = TraceA $ pushDownDagAB op
+pushDownDag (TraceB op) = TraceB $ pushDownDagAB op
+pushDownDag (OpVar s) = OpVar s
+pushDownDag Id = Id
+pushDownDag (SMul s op) = SMul s $ pushDownDag op
+pushDownDag (AddOp ops) = AddOp $ map pushDownDag ops
+pushDownDag (MulOp ops) = MulOp $ map pushDownDag ops
+pushDownDag (Comm op1 op2) = Comm (pushDownDag op1) (pushDownDag op2)
 
 instance Show Scalar where
   show (Trace op) = showTrace "" op
@@ -325,6 +367,7 @@ instance Show Op where
   show (TraceB op) = showTrace "ᴮ" op
   show (OpVar s) = s
   show Id = "𝟙"
+  show (Dag op) = (show op) ++ "*"
   show (SMul s op) = (show s) ++ "⋅" ++ (show op)
   show (AddOp xs) = showAssoc " + " xs
   show (MulOp xs) = showAssoc "⋅" xs
@@ -335,6 +378,7 @@ instance Show OpAB where
   show (SMulAB s op) = (show s) ++ "⋅" ++ (show op)
   show (OpABVar s) = s ++ "ᴬᴮ"
   show IdAB = "𝟙ᴬᴮ"
+  show (DagAB op) = (show op) ++ "*"
   show (AddAB xs) = showAssoc " + " xs
   show (MulAB xs) = showAssoc "⋅" xs
   show (CommAB op1 op2) = showComm op1 op2
