@@ -45,7 +45,8 @@ simplify = canonicizeScalars . collectScalars . standardizeScalars . expand
 -- probably standardize this.
 canonicizeScalars :: Op -> Op
 canonicizeScalars (AddOp ops) = AddOp $ map canonicizeScalars ops
-canonicizeScalars (SMul s op) = SMul (constantCollect $ scalarArrProd $ scalarExpand s) op
+canonicizeScalars (SMul s op) = SMul (constantCollect $ scalarArrProd $
+                                scalarExpand s) op
 canonicizeScalars op = op
 
 scalarExpand :: Scalar -> Scalar
@@ -72,7 +73,8 @@ scalarArrProd' factors = (SConst $ product cs):(sortOn show ss)
 -- Assumes products have single constant term which appears at beginning and
 -- the variable terms are sorted canonically.
 constantCollect :: Scalar -> Scalar
-constantCollect (AddS ss) = AddS $ map (\(k, v) -> MulS $ (SConst $ sum v):k) collectedPairs
+constantCollect (AddS ss) = AddS $ map (\(k, v) -> MulS $ (SConst $ sum v):k)
+                            collectedPairs
   where collectedPairs = Map.toList $ Map.fromListWith (++) pairs
         pairs = foldr (\x acc -> (constProdPair x):acc) [] ss
         constProdPair (MulS ((SConst c):ss')) = (ss', [c])
@@ -93,12 +95,17 @@ separateScalars :: OpAB -> ([Scalar], [OpAB])
 separateScalars (SMulAB s op) = (s:ss, ops)
   where (ss, ops) = separateScalars op
 separateScalars (MulAB ops) = concatPairLists $ map separateScalars ops
-  where concatPairLists = foldr (\(s1s, op1s) (s2s, op2s) -> (s1s ++ s2s, op1s ++ op2s)) ([], [])
+  where concatPairLists = foldr (\(s1s, op1s) (s2s, op2s) ->
+                          (s1s ++ s2s, op1s ++ op2s)) ([], [])
 separateScalars op = ([], [op])
 
 canonPartTrace :: Op -> Op
-canonPartTrace (TraceA op) = AddOp $ map (\(ss, ops) -> SMul (MulS ss) (TraceA $ MulAB ops)) $ map separateScalars $ raiseSumsList op
-canonPartTrace (TraceB op) = AddOp $ map (\(ss, ops) -> SMul (MulS ss) (TraceB $ MulAB ops)) $ map separateScalars $ raiseSumsList op
+canonPartTrace (TraceA op) = AddOp $ map (\(ss, ops) -> SMul (MulS ss)
+                             (TraceA $ MulAB ops)) $ map separateScalars $
+                             raiseSumsList op
+canonPartTrace (TraceB op) = AddOp $ map (\(ss, ops) -> SMul (MulS ss)
+                             (TraceB $ MulAB ops)) $ map separateScalars $
+                             raiseSumsList op
 canonPartTrace op = op
 
 class (Eq a) => Algebra a where
@@ -157,13 +164,17 @@ instance Algebra Op where
 
   standardizeScalars = converge (==) . iterate standardizeScalars'
     where standardizeScalars' op = case op of
-            SMul s (SMul s' op')  -> SMul (MulS [s, s']) $ standardizeScalars' op'
-            SMul s (AddOp ops)    -> AddOp $ map (SMul s) (map standardizeScalars' ops)
+            SMul s (SMul s' op')  -> SMul (MulS [s, s']) $
+                                     standardizeScalars' op'
+            SMul s (AddOp ops)    -> AddOp $ map (SMul s)
+                                     (map standardizeScalars' ops)
             SMul s op'            -> SMul s $ standardizeScalars' op'
             MulOp ops             -> if ss == []
                                      then MulOp $ map standardizeScalars' ops
-                                     else SMul (MulS ss) (MulOp $ map standardizeScalars' ops')
-              where collectScalar (SMul s op') acc = (s:(fst acc), op':(snd acc))
+                                     else SMul (MulS ss)
+                                          (MulOp $ map standardizeScalars' ops')
+              where collectScalar (SMul s op') acc = (s:(fst acc),
+                                                     op':(snd acc))
                     collectScalar op' acc = (fst acc, op':(snd acc))
                     (ss, ops') = foldr collectScalar ([], []) ops
             AddOp ops             -> AddOp $ map standardizeScalars' ops
@@ -171,21 +182,26 @@ instance Algebra Op where
             TraceB (SMulAB s op') -> SMul s (TraceB (standardizeScalars op'))
             TraceA op'            -> TraceA (standardizeScalars op')
             TraceB op'            -> TraceB (standardizeScalars op')
-            Comm (SMul s op1) op2 -> SMul s (Comm (standardizeScalars' op1) (standardizeScalars' op2))
-            Comm op1 (SMul s op2) -> SMul s (Comm (standardizeScalars' op1) (standardizeScalars' op2))
-            Comm op1 op2 -> Comm (standardizeScalars' op1) (standardizeScalars' op2)
+            Comm (SMul s op1) op2 -> SMul s (Comm (standardizeScalars' op1)
+                                     (standardizeScalars' op2))
+            Comm op1 (SMul s op2) -> SMul s (Comm (standardizeScalars' op1)
+                                     (standardizeScalars' op2))
+            Comm op1 op2          -> Comm (standardizeScalars' op1)
+                                     (standardizeScalars' op2)
             op                    -> op
 
   -- Consider writing with aggregateAL:
   -- http://hackage.haskell.org/package/hinduce-missingh-0.0.0.0/docs/Data-List-HIUtils.html#v%3aaggregateAL
-  collectScalars (AddOp ops) = AddOp $ map (\(k, v) -> SMul (AddS v) k) collectedPairs
+  collectScalars (AddOp ops) = AddOp $ map (\(k, v) -> SMul (AddS v) k)
+                               collectedPairs
     where collectedPairs = Map.toList $ Map.fromListWith (++) pairs
           pairs = foldr (\x acc -> (scalOpPair x):acc) [] ops
           scalOpPair (SMul s op) = (op, [s])
           scalOpPair op          = (op, [SConst 1])
 
   simplifyScalars = simplifyScalars' . collectScalars . standardizeScalars
-    where simplifyScalars' (SMul s op) = SMul (collectConsts $ expandScalar s) op
+    where simplifyScalars' (SMul s op) = SMul
+                                         (collectConsts $ expandScalar s) op
           simplifyScalars' (AddOp ops) = AddOp $ map simplifyScalars' ops
           -- The below is kind of weird, since I am only applying
           -- simplifyScalars' after collectScalars, so there shouldn't be any
@@ -194,7 +210,8 @@ instance Algebra Op where
           -- inside the first (and only) AddOp, so much of the following could
           -- be eliminated if I restrict myself to that use case.
           simplifyScalars' (MulOp ops) = MulOp $ map simplifyScalars' ops
-          simplifyScalars' (Comm op1 op2) = Comm (simplifyScalars' op1) (simplifyScalars' op2)
+          simplifyScalars' (Comm op1 op2) = Comm (simplifyScalars' op1)
+                                            (simplifyScalars' op2)
           simplifyScalars' op = op
 
 instance Algebra OpAB where
@@ -213,8 +230,9 @@ instance Algebra OpAB where
     SMulAB s (AddAB ops) -> AddAB $ map (distributeScalars . (SMulAB s)) ops
     AddAB ops            -> AddAB $ map distributeScalars ops
     MulAB ops            -> MulAB $ map distributeScalars ops
-    CommAB op1 op2       -> CommAB (distributeScalars op1) (distributeScalars op2)
-    op                 -> op
+    CommAB op1 op2       -> CommAB (distributeScalars op1)
+                            (distributeScalars op2)
+    op                   -> op
 
   expand = AddAB . (map MulAB) . expand' . distributeScalars . pushDownDagAB
     -- expand' makes a list of lists of ops, where the interior lists represent
@@ -232,20 +250,30 @@ instance Algebra OpAB where
   -- more elegant, though.
   standardizeScalars = converge (==) . iterate standardizeScalars'
     where standardizeScalars' op = case op of
-            SMulAB s (SMulAB s' op')  -> SMulAB (MulS [s, s']) $ standardizeScalars' op'
-            SMulAB s (AddAB ops)      -> AddAB $ map (SMulAB s) (map standardizeScalars' ops)
+            SMulAB s (SMulAB s' op')  -> SMulAB (MulS [s, s']) $
+                                         standardizeScalars' op'
+            SMulAB s (AddAB ops)      -> AddAB $ map (SMulAB s)
+                                         (map standardizeScalars' ops)
             SMulAB s op'              -> SMulAB s $ standardizeScalars' op'
             MulAB ops                 -> if ss == []
-                                         then MulAB $ map standardizeScalars' ops
-                                         else SMulAB (MulS ss) (MulAB $ map standardizeScalars' ops')
-              where collectScalar (SMulAB s op') acc = (s:(fst acc), op':(snd acc))
+                                         then MulAB $
+                                              map standardizeScalars' ops
+                                         else SMulAB (MulS ss) (MulAB $
+                                              map standardizeScalars' ops')
+              where collectScalar (SMulAB s op') acc = (s:(fst acc),
+                                                       op':(snd acc))
                     collectScalar op' acc = (fst acc, op':(snd acc))
                     (ss, ops') = foldr collectScalar ([], []) ops
-            AddAB ops             -> AddAB $ map standardizeScalars' ops
-            CommAB (SMulAB s op1) op2 -> SMulAB s (CommAB (standardizeScalars' op1) (standardizeScalars' op2))
-            CommAB op1 (SMulAB s op2) -> SMulAB s (CommAB (standardizeScalars' op1) (standardizeScalars' op2))
-            CommAB op1 op2 -> CommAB (standardizeScalars' op1) (standardizeScalars' op2)
-            op                    -> op
+            AddAB ops                 -> AddAB $ map standardizeScalars' ops
+            CommAB (SMulAB s op1) op2 -> SMulAB s (CommAB
+                                         (standardizeScalars' op1)
+                                         (standardizeScalars' op2))
+            CommAB op1 (SMulAB s op2) -> SMulAB s (CommAB
+                                         (standardizeScalars' op1)
+                                         (standardizeScalars' op2))
+            CommAB op1 op2            -> CommAB (standardizeScalars' op1)
+                                         (standardizeScalars' op2)
+            op                        -> op
 
 -- In the future, consider using cyclotomic numbers for SConst, implemented in
 -- package Data.Complex.Cyclotomic
