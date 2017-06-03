@@ -46,8 +46,22 @@ simplify = canonicizeScalars . collectScalars . standardizeScalars . expand
 canonicizeScalars :: Op -> Op
 canonicizeScalars (AddOp ops) = AddOp $ map canonicizeScalars ops
 canonicizeScalars (SMul s op) = SMul (constantCollect $ scalarArrProd $
-                                scalarExpand s) op
+                                scalarExpand $ pushDownNeg s) op
 canonicizeScalars op = op
+
+pushDownNeg :: Scalar -> Scalar
+pushDownNeg (SNeg s) = case s of
+  SConst r     -> SConst (-r)
+  AddS ss      -> AddS $ map (pushDownNeg . SNeg) ss
+  MulS (s':ss) -> MulS $ (pushDownNeg $ SNeg s'):ss
+  SNeg s'      -> pushDownNeg s'
+  SInv s'      -> SInv $ pushDownNeg $ SNeg s'
+pushDownNeg (AddS ss) = AddS $ map pushDownNeg ss
+pushDownNeg (MulS ss) = MulS $ map pushDownNeg ss
+pushDownNeg (SInv s) = SInv $ pushDownNeg s
+pushDownNeg (Abs (SNeg s)) = pushDownNeg (Abs s)
+pushDownNeg (Abs s) = Abs $ pushDownNeg s
+pushDownNeg s = s
 
 scalarExpand :: Scalar -> Scalar
 scalarExpand = AddS . (map MulS) . scalarExpand'
@@ -274,6 +288,12 @@ instance Algebra OpAB where
             CommAB op1 op2            -> CommAB (standardizeScalars' op1)
                                          (standardizeScalars' op2)
             op                        -> op
+
+canonicizeScalarsAB :: OpAB -> OpAB
+canonicizeScalarsAB (AddAB ops) = AddAB $ map canonicizeScalarsAB ops
+canonicizeScalarsAB (SMulAB s op) = SMulAB (constantCollect $ scalarArrProd $
+                                    scalarExpand $ pushDownNeg s) op
+canonicizeScalarsAB op = op
 
 -- In the future, consider using cyclotomic numbers for SConst, implemented in
 -- package Data.Complex.Cyclotomic
