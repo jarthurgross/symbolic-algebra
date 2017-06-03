@@ -32,7 +32,8 @@ sExpr = MulS [AddS [x, 1], AddS[y, MulS [x, y]], 5]
 --     canonicizeScalars $ collectScalars $ standardizeScalars $ expand expr
 -- to get things in a somewhat canonical form.
 simplify :: Op -> Op
-simplify = canonicizeScalars . collectScalars . standardizeScalars . expand
+simplify = cleanupOp . canonicizeScalars . collectScalars . standardizeScalars .
+           expand
 
 -- This guy should take an Op that is a sum of terms that are products of
 -- scalars and a product of Ops, where the Ops in these products contain no
@@ -288,6 +289,82 @@ instance Algebra OpAB where
             CommAB op1 op2            -> CommAB (standardizeScalars' op1)
                                          (standardizeScalars' op2)
             op                        -> op
+
+simpTProd :: OpAB -> OpAB
+simpTProd (SMulAB s op) = SMulAB s $ simpTProd op
+simpTProd (DagAB op) = DagAB $ simpTProd op
+simpTProd (AddAB ops) = AddAB $ map simpTProd ops
+simpTProd (MulAB ops) = MulAB $ simpTPMulList ops
+simpTProd (CommAB op1 op2) = CommAB (simpTProd op1) (simpTProd op2)
+
+simpTPMulList :: [OpAB] -> [OpAB]
+simpTPMulList ((TProd opA1 opB1):(TProd opA2 opB2):ops) =
+  simpTPMulList $ (TProd (simplify $ MulOp [opA1, opA2])
+  (simplify $ MulOp [opB1, opB2])):ops
+simpTPMulList (op1:op2:ops) = op1:(simpTPMulList $ op2:ops)
+simpTPMulList ops = ops
+
+simplifyAB :: OpAB -> OpAB
+simplifyAB = cleanupAB . simpTProd . canonicizeScalarsAB . collectScalars .
+  standardizeScalars . expand
+
+-- Remove a bunch of overly cumbersome constructs we built in the simplification
+-- process, e.g. products/sums of singleton lists and trivial multiplications.
+cleanupOp :: Op -> Op
+cleanupOp (TraceA op) = TraceA $ cleanupAB op
+cleanupOp (TraceB op) = TraceB $ cleanupAB op
+cleanupOp (Dag op) = Dag $ cleanupOp op
+cleanupOp (SMul s op) = cleanupSMul (cleanupScalar s) (cleanupOp op)
+cleanupOp (AddOp (op:[])) = cleanupOp op
+cleanupOp (AddOp ops) = AddOp $ map cleanupOp ops
+cleanupOp (MulOp (op:[])) = cleanupOp op
+cleanupOp (MulOp ops) = MulOp $ cleanupMulListOp $ map cleanupOp ops
+cleanupOp op = op
+
+cleanupMulListOp :: [Op] -> [Op]
+cleanupMulListOp (Id:op:ops) = cleanupMulListOp $ op:ops
+cleanupMulListOp (op:Id:ops) = cleanupMulListOp $ op:ops
+cleanupMulListOp (op:ops) = (cleanupOp op):(cleanupMulListOp ops)
+cleanupMulListOp [] = []
+
+cleanupSMul :: Scalar -> Op -> Op
+cleanupSMul 1 op = op
+cleanupSMul s op = SMul s op
+
+cleanupAB :: OpAB -> OpAB
+cleanupAB (TProd op1 op2) = TProd (cleanupOp op1) (cleanupOp op2)
+cleanupAB (DagAB op) = DagAB $ cleanupAB op
+cleanupAB (SMulAB s op) = cleanupSMulAB (cleanupScalar s) (cleanupAB op)
+cleanupAB (AddAB (op:[])) = cleanupAB op
+cleanupAB (AddAB ops) = AddAB $ map cleanupAB ops
+cleanupAB (MulAB (op:[])) = cleanupAB op
+cleanupAB (MulAB ops) = MulAB $ cleanupMulListAB $ map cleanupAB ops
+cleanupAB op = op
+
+cleanupSMulAB :: Scalar -> OpAB -> OpAB
+cleanupSMulAB 1 op = op
+cleanupSMulAB s op = SMulAB s op
+
+cleanupScalar :: Scalar -> Scalar
+cleanupScalar (AddS (s:[])) = cleanupScalar s
+cleanupScalar (MulS (s:[])) = cleanupScalar s
+cleanupScalar (MulS ss) = MulS $ cleanupMulListScalar ss
+cleanupScalar s = s
+
+-- We're handling the multiplicative identity, but we should also be handling
+-- the additive identity (will need to add the zero operator).
+
+cleanupMulListScalar :: [Scalar] -> [Scalar]
+cleanupMulListScalar (1:s:ss) = cleanupMulListScalar $ s:ss
+cleanupMulListScalar (s:1:ss) = cleanupMulListScalar $ s:ss
+cleanupMulListScalar (s:ss) = (cleanupScalar s):(cleanupMulListScalar ss)
+cleanupMulListScalar [] = []
+
+cleanupMulListAB :: [OpAB] -> [OpAB]
+cleanupMulListAB (IdAB:op:ops) = cleanupMulListAB $ op:ops
+cleanupMulListAB (op:IdAB:ops) = cleanupMulListAB $ op:ops
+cleanupMulListAB (op:ops) = (cleanupAB op):(cleanupMulListAB ops)
+cleanupMulListAB [] = []
 
 canonicizeScalarsAB :: OpAB -> OpAB
 canonicizeScalarsAB (AddAB ops) = AddAB $ map canonicizeScalarsAB ops
