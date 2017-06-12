@@ -126,32 +126,46 @@ showAddParenOp :: Op -> String
 showAddParenOp (AddOp ops) = "(" ++ (intercalate " + " $ map show ops) ++ ")"
 showAddParenOp op = show op
 
-infixr 7 /*/
-(/*/) :: Op -> Op -> Op
-ZeroOp /*/ op = ZeroOp
-op /*/ ZeroOp = ZeroOp
-IdOp /*/ op = op
-op /*/ IdOp = op
-(MulOp ops1) /*/ (MulOp ops2) = MulOp (ops1 ++ ops2)
-op /*/ (MulOp ops) = MulOp (op:ops)
-(MulOp ops) /*/ op = MulOp (ops ++ [op])
-op1 /*/ op2 = MulOp [op1, op2]
+class Algebra a where
+  infixr 7 /*/
+  (/*/) :: a -> a -> a
 
-infixr 6 /+/
-(/+/) :: Op -> Op -> Op
-ZeroOp /+/ op = op
-op /+/ ZeroOp = op
-(AddOp ops1) /+/ (AddOp ops2) = AddOp (ops1 ++ ops2)
-op /+/ (AddOp ops) = AddOp (op:ops)
-(AddOp ops) /+/ op = AddOp (ops ++ [op])
-op1 /+/ op2 = AddOp [op1, op2]
+  infixr 6 /+/
+  (/+/) :: a -> a -> a
 
-dag :: Op -> Op
-dag ZeroOp = ZeroOp
-dag IdOp = IdOp
-dag (HermOpVar s) = HermOpVar s
-dag (Dag op) = op
-dag op = Dag op
+  dag :: a -> a
+
+  infixr 7 */
+  (*/) :: Scalar -> a -> a
+
+instance Algebra Op where
+  ZeroOp /*/ op = ZeroOp
+  op /*/ ZeroOp = ZeroOp
+  IdOp /*/ op = op
+  op /*/ IdOp = op
+  (MulOp ops1) /*/ (MulOp ops2) = MulOp (ops1 ++ ops2)
+  op /*/ (MulOp ops) = MulOp (op:ops)
+  (MulOp ops) /*/ op = MulOp (ops ++ [op])
+  op1 /*/ op2 = MulOp [op1, op2]
+
+  ZeroOp /+/ op = op
+  op /+/ ZeroOp = op
+  (AddOp ops1) /+/ (AddOp ops2) = AddOp (ops1 ++ ops2)
+  op /+/ (AddOp ops) = AddOp (op:ops)
+  (AddOp ops) /+/ op = AddOp (ops ++ [op])
+  op1 /+/ op2 = AddOp [op1, op2]
+
+  dag ZeroOp = ZeroOp
+  dag IdOp = IdOp
+  dag (HermOpVar s) = HermOpVar s
+  dag (Dag op) = op
+  dag op = Dag op
+
+  (Const 0) */ op = ZeroOp
+  (Const 1) */ op = op
+  s */ ZeroOp = ZeroOp
+  s */ (SMul s' op) = SMul (s' * s) op
+  s */ op = SMul s op
 
 -- Now for some simplification algorithms
 
