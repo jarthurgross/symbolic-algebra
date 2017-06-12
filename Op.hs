@@ -107,17 +107,17 @@ instance Show Op where
   show (OpVar str) = str
   show (HermOpVar str) = str
   show (Dag op) = case op of
-    ZeroOp  -> "𝟘†"
-    IdOp    -> "𝟙†"
-    OpVar s -> s ++ "†"
+    ZeroOp  -> (show op) ++ "†"
+    IdOp    -> (show op) ++ "†"
+    OpVar s -> (show op) ++ "†"
     Dag op' -> (show $ Dag op') ++ "†"
     op      -> "(" ++ (show op) ++ ")†"
   show (SMul sca op) = (show sca) ++ "⋅" ++ (showAddParenOp op)
   show (PowOp op n) = case op of
-    ZeroOp      -> "𝟘" ++ (toSupScr n)
-    IdOp        -> "𝟙" ++ (toSupScr n)
-    OpVar s     -> s ++ (toSupScr n)
-    HermOpVar s -> s ++ (toSupScr n)
+    ZeroOp      -> (show op) ++ (toSupScr n)
+    IdOp        -> (show op) ++ (toSupScr n)
+    OpVar s     -> (show op) ++ (toSupScr n)
+    HermOpVar s -> (show op) ++ (toSupScr n)
     op          -> "(" ++ (show op) ++ ")" ++ (toSupScr n)
   show (AddOp ops) = intercalate " + " $ map show ops
   show (MulOp ops) = intercalate "⋅" $ map showAddParenOp ops
