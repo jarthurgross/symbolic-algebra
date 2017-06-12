@@ -32,6 +32,17 @@ data Op = ZeroOp
         | AddOp [Op]
         | MulOp [Op] deriving (Eq, Ord)
 
+data OpAB = ZeroOpAB
+          | IdOpAB
+          | OpABVar String
+          | HermOpABVar String
+          | DagAB OpAB
+          | SMulAB Scalar OpAB
+          | PowOpAB OpAB Integer
+          | AddOpAB [OpAB]
+          | MulOpAB [OpAB]
+          | TProd Op Op deriving (Eq, Ord)
+
 -- Give a rather arbitrary ordering on Cyclotomics to facilitate sorting Scalar
 -- and operator terms.
 instance Ord Cyclotomic where
@@ -126,6 +137,37 @@ showAddParenOp :: Op -> String
 showAddParenOp (AddOp ops) = "(" ++ (intercalate " + " $ map show ops) ++ ")"
 showAddParenOp op = show op
 
+instance Show OpAB where
+  show ZeroOpAB = "𝟘"
+  show IdOpAB = "𝟙"
+  show (OpABVar str) = str
+  show (HermOpABVar str) = str
+  show (DagAB op) = case op of
+    ZeroOpAB  -> (show op) ++ "†"
+    IdOpAB    -> (show op) ++ "†"
+    OpABVar s -> (show op) ++ "†"
+    DagAB op' -> (show $ DagAB op') ++ "†"
+    op        -> "(" ++ (show op) ++ ")†"
+  show (SMulAB sca op) = (show sca) ++ "⋅" ++ (showAddParenOpAB op)
+  show (PowOpAB op n) = case op of
+    ZeroOpAB      -> (show op) ++ (toSupScr n)
+    IdOpAB        -> (show op) ++ (toSupScr n)
+    OpABVar s     -> (show op) ++ (toSupScr n)
+    HermOpABVar s -> (show op) ++ (toSupScr n)
+    op            -> "(" ++ (show op) ++ ")" ++ (toSupScr n)
+  show (AddOpAB ops) = intercalate " + " $ map show ops
+  show (MulOpAB ops) = intercalate "⋅" $ map showAddParenOpAB ops
+  show (TProd op1 op2) = (showAddParenOp op1) ++ "⊗" ++ (showAddParenOp op2)
+
+showAddParenOpAB :: OpAB -> String
+showAddParenOpAB (AddOpAB ops) = "(" ++ (intercalate " + " $
+                                 map show ops) ++ ")"
+showAddParenOpAB op = show op
+
+infix ><
+(><) :: Op -> Op -> OpAB
+op1 >< op2 = TProd op1 op2
+
 class Algebra a where
   infixr 7 /*/
   (/*/) :: a -> a -> a
@@ -166,6 +208,36 @@ instance Algebra Op where
   s */ ZeroOp = ZeroOp
   s */ (SMul s' op) = SMul (s' * s) op
   s */ op = SMul s op
+
+instance Algebra OpAB where
+  ZeroOpAB /*/ op = ZeroOpAB
+  op /*/ ZeroOpAB = ZeroOpAB
+  IdOpAB /*/ op = op
+  op /*/ IdOpAB = op
+  (TProd opa opb) /*/ (TProd opa' opb') = TProd (opa /*/ opa') (opb /*/ opb')
+  (MulOpAB ops1) /*/ (MulOpAB ops2) = MulOpAB (ops1 ++ ops2)
+  op /*/ (MulOpAB ops) = MulOpAB (op:ops)
+  (MulOpAB ops) /*/ op = MulOpAB (ops ++ [op])
+  op1 /*/ op2 = MulOpAB [op1, op2]
+
+  ZeroOpAB /+/ op = op
+  op /+/ ZeroOpAB = op
+  (AddOpAB ops1) /+/ (AddOpAB ops2) = AddOpAB (ops1 ++ ops2)
+  op /+/ (AddOpAB ops) = AddOpAB (op:ops)
+  (AddOpAB ops) /+/ op = AddOpAB (ops ++ [op])
+  op1 /+/ op2 = AddOpAB [op1, op2]
+
+  dag ZeroOpAB = ZeroOpAB
+  dag IdOpAB = IdOpAB
+  dag (HermOpABVar s) = HermOpABVar s
+  dag (DagAB op) = op
+  dag op = DagAB op
+
+  (Const 0) */ op = ZeroOpAB
+  (Const 1) */ op = op
+  s */ ZeroOpAB = ZeroOpAB
+  s */ (SMulAB s' op) = SMulAB (s' * s) op
+  s */ op = SMulAB s op
 
 -- Now for some simplification algorithms
 
