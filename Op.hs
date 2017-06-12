@@ -20,7 +20,7 @@ data Scalar = Const Cyclotomic
             | Abs Scalar
             | Sgn Scalar
             | Add [Scalar]
-            | Mul [Scalar] deriving (Eq)
+            | Mul [Scalar] deriving (Eq, Ord)
 
 data Op = ZeroOp
         | IdOp
@@ -30,7 +30,12 @@ data Op = ZeroOp
         | SMul Scalar Op
         | PowOp Op Integer
         | AddOp [Op]
-        | MulOp [Op] deriving (Eq)
+        | MulOp [Op] deriving (Eq, Ord)
+
+-- Give a rather arbitrary ordering on Cyclotomics to facilitate sorting Scalar
+-- and operator terms.
+instance Ord Cyclotomic where
+  c <= c' = (show c) <= (show c')
 
 instance Show Scalar where
   show (Const c) = show c
