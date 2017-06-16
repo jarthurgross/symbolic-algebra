@@ -18,7 +18,7 @@ y = Var "y"
 u = IdOp /+/ (SMul (Const $ e 4) h) /+/ (SMul (Const (-1/2)) (h /*/ h))
 
 ui = IdOpAB /+/ sqrtdt */ (c >< bdg /-/ (cdg >< b)) /+/
-     (half * sqrtdt) */ (c >< bdg /-/ cdg >< b) /*/ (c >< bdg /-/ cdg >< b)
+     (half * sqrtdt * sqrtdt) */ (c >< bdg /-/ cdg >< b) /*/ (c >< bdg /-/ cdg >< b)
 
 sqrtdt = RealVar "√Δτ"
 half = Const $ gaussianRat (1 % 2) 0
@@ -105,6 +105,8 @@ instance Num Scalar where
   (Sgn sca) * (Abs sca')
     | sca == sca' = sca
     | otherwise   = Mul [Sgn sca, Abs sca']
+  (Const 0) * sca = Const 0
+  sca * (Const 0) = Const 0
   (Const 1) * sca = sca
   sca * (Const 1) = sca
   (Const c1) * (Const c2) = Const $ c1 * c2
@@ -141,7 +143,7 @@ instance Show Op where
     OpVar s -> (show op) ++ "†"
     Dag op' -> (show $ Dag op') ++ "†"
     op      -> "(" ++ (show op) ++ ")†"
-  show (SMul sca op) = (show sca) ++ "⋅" ++ (showAddParenOp op)
+  show (SMul sca op) = (showAddParen sca) ++ "⋅" ++ (showAddParenOp op)
   show (PowOp op n) = case op of
     ZeroOp      -> (show op) ++ (toSupScr n)
     IdOp        -> (show op) ++ (toSupScr n)
@@ -166,7 +168,7 @@ instance Show OpAB where
     OpABVar s -> (show op) ++ "†"
     DagAB op' -> (show $ DagAB op') ++ "†"
     op        -> "(" ++ (show op) ++ ")†"
-  show (SMulAB sca op) = (show sca) ++ "⋅" ++ (showAddParenOpAB op)
+  show (SMulAB sca op) = (showAddParen sca) ++ "⋅" ++ (showAddParenOpAB op)
   show (PowOpAB op n) = case op of
     ZeroOpAB      -> (show op) ++ (toSupScr n)
     IdOpAB        -> (show op) ++ (toSupScr n)
@@ -184,6 +186,8 @@ showAddParenOpAB op = show op
 
 infix ><
 (><) :: Op -> Op -> OpAB
+ZeroOp >< op = ZeroOpAB
+op >< ZeroOp = ZeroOpAB
 op1 >< op2 = TProd op1 op2
 
 class Algebra a where
@@ -405,49 +409,65 @@ bindScalarsAB (MulOpAB ops) = algProd $ map bindScalarsAB ops
 bindScalarsAB (TProd opa opb) = (bindScalars opa) >< (bindScalars opb)
 bindScalarsAB op = op
 
+-- This function is designed to be called after pushDownConj and expandPow
+listDistribute :: Scalar -> [([Scalar], Cyclotomic)]
+listDistribute (Const 0) = []
+listDistribute (Const c) = [([], c)]
+listDistribute (Add scas) = concat $ map listDistribute scas
+listDistribute (Mul scas) = map combProdList $ sequence $ map listDistribute scas
+listDistribute (Neg sca) = listDistribute $ (-1) * sca
+listDistribute sca = [([sca], 1)]
+
 -- This function is designed to be called after pushDownDag, bindScalars, and
--- expandPow
-listDistribute :: Op -> [([Op], Scalar)]
-listDistribute ZeroOp = []
-listDistribute IdOp = [([], Const 1)]
-listDistribute (SMul sca op) = [([op], sca)]
-listDistribute (AddOp ops) = concat $ map listDistribute ops
-listDistribute (MulOp ops) = map combProdList $ sequence $ map listDistribute ops
-listDistribute op = [([op], Const 1)]
+-- expandPowOp
+listDistributeOp :: Op -> [([Op], Scalar)]
+listDistributeOp ZeroOp = []
+listDistributeOp IdOp = [([], Const 1)]
+listDistributeOp (SMul sca op) = [([op], sca)]
+listDistributeOp (AddOp ops) = concat $ map listDistributeOp ops
+listDistributeOp (MulOp ops) = map combProdList $ sequence $ map listDistributeOp ops
+listDistributeOp op = [([op], Const 1)]
 
 -- This function is designed to be called after pushDownDagAB, bindScalarsAB,
 -- and expandPowAB
-listDistributeAB :: OpAB -> [([OpAB], Scalar)]
-listDistributeAB ZeroOpAB = []
-listDistributeAB IdOpAB = [([], Const 1)]
-listDistributeAB (SMulAB sca op) = [([op], sca)]
-listDistributeAB (AddOpAB ops) = concat $ map listDistributeAB ops
-listDistributeAB (MulOpAB ops) = map combProdList $ sequence $
-                                 map listDistributeAB ops
-listDistributeAB (TProd opa opb) = map listToTProd tprodList
-  where opaList = listDistribute opa
-        opbList = listDistribute opb
+listDistributeOpAB :: OpAB -> [([OpAB], Scalar)]
+listDistributeOpAB ZeroOpAB = []
+listDistributeOpAB IdOpAB = [([], Const 1)]
+listDistributeOpAB (SMulAB sca op) = [([op], sca)]
+listDistributeOpAB (AddOpAB ops) = concat $ map listDistributeOpAB ops
+listDistributeOpAB (MulOpAB ops) = map combProdList $ sequence $
+                                   map listDistributeOpAB ops
+listDistributeOpAB (TProd opa opb) = map listToTProd tprodList
+  where opaList = listDistributeOp opa
+        opbList = listDistributeOp opb
         tprodList = sequence [opaList, opbList]
         listToTProd ((opsa, sa):(opsb, sb):[]) = ([(algProd opsa) ><
                                                  (algProd opsb)], (sa * sb))
-listDistributeAB op = [([op], Const 1)]
+listDistributeOpAB op = [([op], Const 1)]
 
 -- Combine a list of operator products (where each product is represented as a
 -- tuple whose first element is a list of the operator factors and whose second
 -- element is a scalar prefactor) into a single operator product in the same
 -- representation as though the products themselves were multiplied together.
-combProdList :: (Foldable t) => t ([a], Scalar) -> ([a], Scalar)
+combProdList :: (Foldable t, Num s) => t ([a], s) -> ([a], s)
 combProdList = foldr (\(ops, s) (ops', s') -> (ops ++ ops', s * s'))
-               ([], Const 1)
+               ([], fromInteger 1)
+
+expand :: Scalar -> Scalar
+expand = listToSca . listCollect . listDistribute . pushDownConj . expandPow
 
 expandOp :: Op -> Op
-expandOp = cleanupOp . listToAlg . listCollect . listDistribute . bindScalars .
-           pushDownDag . expandPowOp
+expandOp = cleanupOp . listToAlg . canonicizeScalars . listCollect .
+           listDistributeOp . bindScalars .  pushDownDag . expandPowOp
 
--- Still need to implement cleanup, and like the rest of the functions here no
--- Scalar simplification is currently being performed.
-expandOpAB = listToAlg . listCollect . listDistributeAB . bindScalarsAB .
-             pushDownDagAB . expandPowOpAB
+expandOpAB = cleanupOpAB . listToAlg . canonicizeScalars . listCollect .
+             listDistributeOpAB .  bindScalarsAB .  pushDownDagAB . expandPowOpAB
+
+canonicizeScalars :: [(a, Scalar)] -> [(a, Scalar)]
+canonicizeScalars = map (\(ops, sca) -> (ops, expand sca))
+
+listToSca :: [([Scalar], Cyclotomic)] -> Scalar
+listToSca = sum . (map (\(scas, c) -> (Const c) * (product scas)))
 
 listToAlg :: (Algebra a) => [([a], Scalar)] -> a
 listToAlg = algSum . (map (\(ops, sca) -> sca */ (algProd ops)))
@@ -467,7 +487,22 @@ cleanupOp op = op
 cleanupSMul :: Scalar -> Op -> Op
 cleanupSMul (Const 1) op = op
 cleanupSMul (Const 0) op = ZeroOp
-cleanupSMul s op = SMul s op
+cleanupSMul s op = s */ op
+
+cleanupOpAB :: OpAB -> OpAB
+cleanupOpAB (DagAB op) = DagAB $ cleanupOpAB op
+cleanupOpAB (SMulAB s op) = cleanupSMulAB (cleanupScalar s) (cleanupOpAB op)
+cleanupOpAB (AddOpAB (op:[])) = cleanupOpAB op
+cleanupOpAB (AddOpAB ops) = algSum $ map cleanupOpAB ops
+cleanupOpAB (MulOpAB (op:[])) = cleanupOpAB op
+cleanupOpAB (MulOpAB ops) = algProd $ map cleanupOpAB ops
+cleanupOpAB (TProd opa opb) = (cleanupOp opa) >< (cleanupOp opb)
+cleanupOpAB op = op
+
+cleanupSMulAB :: Scalar -> OpAB -> OpAB
+cleanupSMulAB (Const 1) op = op
+cleanupSMulAB (Const 0) op = ZeroOpAB
+cleanupSMulAB s op = s */ op
 
 cleanupScalar :: Scalar -> Scalar
 cleanupScalar (Add (s:[])) = cleanupScalar s
