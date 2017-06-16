@@ -454,8 +454,27 @@ combProdList = foldr (\(ops, s) (ops', s') -> (ops ++ ops', s * s'))
                ([], fromInteger 1)
 
 expand :: Scalar -> Scalar
-expand = listToSca . (map (\(scas, c) -> (makePows scas, c))) . listCollect .
-         listDistribute . pushDownConj . expandPow
+expand = collectPows . listToSca . listCollect . listDistribute . pushDownConj .
+         expandPow
+
+expandOp :: Op -> Op
+expandOp = collectPowOps . cleanupOp . listToAlg . canonicizeScalars .
+           listCollect . listDistributeOp . bindScalars . pushDownDag .
+           expandPowOp
+
+expandOpAB = collectPowOpABs . cleanupOpAB . listToAlg . canonicizeScalars .
+             listCollect .  listDistributeOpAB . bindScalarsAB . pushDownDagAB .
+             expandPowOpAB
+
+collectPows :: Scalar -> Scalar
+collectPows (Neg sca) = Neg $ collectPows sca
+collectPows (Conj sca) = Conj $ collectPows sca
+collectPows (Pow sca n) = Pow (collectPows sca) n
+collectPows (Abs sca) = Abs $ collectPows sca
+collectPows (Sgn sca) = Sgn $ collectPows sca
+collectPows (Add scas) = Add $ map collectPows scas
+collectPows (Mul scas) = Mul $ makePows $ map collectPows scas
+collectPows sca = sca
 
 -- Designed for lists of Scalars that don't include constants
 makePows :: [Scalar] -> [Scalar]
@@ -474,12 +493,56 @@ makePows scas = foldr buildProd [] scas
           | otherwise   = sca:sca':scas
         buildProd sca scas = sca:scas
 
-expandOp :: Op -> Op
-expandOp = cleanupOp . listToAlg . canonicizeScalars . listCollect .
-           listDistributeOp . bindScalars .  pushDownDag . expandPowOp
+collectPowOps :: Op -> Op
+collectPowOps (Dag op) = Dag $ collectPowOps op
+collectPowOps (SMul sca op) = SMul (collectPows sca) (collectPowOps op)
+collectPowOps (PowOp op n) = PowOp (collectPowOps op) n
+collectPowOps (AddOp ops) = AddOp $ map collectPowOps ops
+collectPowOps (MulOp ops) = MulOp $ makePowOps $ map collectPowOps ops
+collectPowOps op = op
 
-expandOpAB = cleanupOpAB . listToAlg . canonicizeScalars . listCollect .
-             listDistributeOpAB .  bindScalarsAB .  pushDownDagAB . expandPowOpAB
+-- Designed for lists of Ops that don't include SMuls, AddOps, or MulOps
+makePowOps :: [Op] -> [Op]
+makePowOps ops = foldr buildProd [] ops
+  where buildProd (PowOp op n) ((PowOp op' m):ops)
+          | op == op' && n >= 1 && m >= 0 = (PowOp op $ n + m):ops
+          | otherwise                       = (PowOp op n):(PowOp op' m):ops
+        buildProd (PowOp op n) (op':ops)
+          | op == op' && n >= 1 = (PowOp op $ n + 1):ops
+          | otherwise             = (PowOp op n):op':ops
+        buildProd op ((PowOp op' m):ops)
+          | op == op' && m >= 0 = (PowOp op $ m + 1):ops
+          | otherwise             = op:(PowOp op' m):ops
+        buildProd op (op':ops)
+          | op == op' = (PowOp op 2):ops
+          | otherwise   = op:op':ops
+        buildProd op ops = op:ops
+
+collectPowOpABs :: OpAB -> OpAB
+collectPowOpABs (DagAB op) = DagAB $ collectPowOpABs op
+collectPowOpABs (SMulAB sca op) = SMulAB (collectPows sca) (collectPowOpABs op)
+collectPowOpABs (PowOpAB op n) = PowOpAB (collectPowOpABs op) n
+collectPowOpABs (AddOpAB ops) = AddOpAB $ map collectPowOpABs ops
+collectPowOpABs (MulOpAB ops) = MulOpAB $ makePowOpABs $ map collectPowOpABs ops
+collectPowOpABs (TProd opa opb) = TProd (collectPowOps opa) (collectPowOps opb)
+collectPowOpABs op = op
+
+-- Designed for lists of OpABs that don't include SMulABs, AddOpABs, or MulOpABs
+makePowOpABs :: [OpAB] -> [OpAB]
+makePowOpABs ops = foldr buildProd [] ops
+  where buildProd (PowOpAB op n) ((PowOpAB op' m):ops)
+          | op == op' && n >= 1 && m >= 0 = (PowOpAB op $ n + m):ops
+          | otherwise                       = (PowOpAB op n):(PowOpAB op' m):ops
+        buildProd (PowOpAB op n) (op':ops)
+          | op == op' && n >= 1 = (PowOpAB op $ n + 1):ops
+          | otherwise             = (PowOpAB op n):op':ops
+        buildProd op ((PowOpAB op' m):ops)
+          | op == op' && m >= 0 = (PowOpAB op $ m + 1):ops
+          | otherwise             = op:(PowOpAB op' m):ops
+        buildProd op (op':ops)
+          | op == op' = (PowOpAB op 2):ops
+          | otherwise   = op:op':ops
+        buildProd op ops = op:ops
 
 canonicizeScalars :: [(a, Scalar)] -> [(a, Scalar)]
 canonicizeScalars = map (\(ops, sca) -> (ops, expand sca))
