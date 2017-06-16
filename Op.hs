@@ -306,6 +306,17 @@ expandPowOp (AddOp ops) = algSum $ map expandPowOp ops
 expandPowOp (MulOp ops) = algProd $ map expandPowOp ops
 expandPowOp op = op
 
+expandPowOpAB :: OpAB -> OpAB
+expandPowOpAB (DagAB op) = dag $ expandPowOpAB op
+expandPowOpAB (SMulAB sca op) = sca */ (expandPowOpAB op)
+expandPowOpAB (PowOpAB op n)
+  | n <= 0    = PowOpAB op n
+  | n == 1    = op
+  | otherwise = (expandPowOpAB op) /*/ (expandPowOpAB $ PowOpAB op $ n - 1)
+expandPowOpAB (AddOpAB ops) = algSum $ map expandPowOpAB ops
+expandPowOpAB (MulOpAB ops) = algProd $ map expandPowOpAB ops
+expandPowOpAB (TProd opa opb) = (expandPowOp opa) >< (expandPowOp opb)
+expandPowOpAB op = op
 
 pushDownConj :: Scalar -> Scalar
 pushDownConj (Conj sca) = case sca of
@@ -376,6 +387,23 @@ bindScalars (PowOp op n) = PowOp (bindScalars op) n
 bindScalars (AddOp ops) = algSum $ map bindScalars ops
 bindScalars (MulOp ops) = algProd $ map bindScalars ops
 bindScalars op = op
+
+-- This function is designed to be called after pushDownDagAB and expandPowAB
+bindScalarsAB :: OpAB -> OpAB
+bindScalarsAB (SMulAB sca op) = case op of
+  MulOpAB []       -> sca */ IdOpAB
+  MulOpAB (op:ops) -> MulOpAB $ map bindScalarsAB $ (sca */ op):ops
+  AddOpAB []       -> ZeroOpAB
+  AddOpAB ops      -> AddOpAB $ map (bindScalarsAB . (sca */)) ops
+  ZeroOpAB         -> ZeroOpAB
+  TProd opa opb    -> (bindScalars $ sca */ opa) >< (bindScalars opb)
+  op               -> sca */ op
+bindScalarsAB (DagAB op) = dag $ bindScalarsAB op
+bindScalarsAB (PowOpAB op n) = PowOpAB (bindScalarsAB op) n
+bindScalarsAB (AddOpAB ops) = algSum $ map bindScalarsAB ops
+bindScalarsAB (MulOpAB ops) = algProd $ map bindScalarsAB ops
+bindScalarsAB (TProd opa opb) = (bindScalars opa) >< (bindScalars opb)
+bindScalarsAB op = op
 
 -- This function is designed to be called after pushDownDag, bindScalars, and
 -- expandPow
