@@ -3,6 +3,7 @@
 import Data.List
 import Data.Complex.Cyclotomic
 import Data.Ratio
+import qualified Data.Map.Strict as Map
 
 a = OpVar "A"
 b = OpVar "b"
@@ -94,6 +95,8 @@ showAddParen (Add scas) = "(" ++ (intercalate " + " $ map show scas) ++ ")"
 showAddParen sca = show sca
 
 instance Num Scalar where
+  (Const 0) + sca = sca
+  sca + (Const 0) = sca
   (Const c1) + (Const c2) = Const $ c1 + c2
   (Add scas1) + (Add scas2) = Add (scas1 ++ scas2)
   sca + (Add scas) = Add (sca:scas)
@@ -102,6 +105,8 @@ instance Num Scalar where
   (Sgn sca) * (Abs sca')
     | sca == sca' = sca
     | otherwise   = Mul [Sgn sca, Abs sca']
+  (Const 1) * sca = sca
+  sca * (Const 1) = sca
   (Const c1) * (Const c2) = Const $ c1 * c2
   (Mul scas1) * (Mul scas2) = Mul (scas1 ++ scas2)
   sca * (Mul scas) = Mul (sca:scas)
@@ -182,11 +187,21 @@ infix ><
 op1 >< op2 = TProd op1 op2
 
 class Algebra a where
+  unit :: a
+
+  zero :: a
+
   infixr 7 /*/
   (/*/) :: a -> a -> a
 
+  algProd :: (Foldable t) => t a -> a
+  algProd = foldl (/*/) unit
+
   infixr 6 /+/
   (/+/) :: a -> a -> a
+
+  algSum :: (Foldable t) => t a -> a
+  algSum = foldl (/+/) zero
 
   infixl 6 /-/
   (/-/) :: a -> a -> a
@@ -199,6 +214,9 @@ class Algebra a where
   (*/) :: Scalar -> a -> a
 
 instance Algebra Op where
+  unit = IdOp
+  zero = ZeroOp
+
   ZeroOp /*/ op = ZeroOp
   op /*/ ZeroOp = ZeroOp
   IdOp /*/ op = op
@@ -228,6 +246,9 @@ instance Algebra Op where
   s */ op = SMul s op
 
 instance Algebra OpAB where
+  unit = IdOpAB
+  zero = ZeroOpAB
+
   ZeroOpAB /*/ op = ZeroOpAB
   op /*/ ZeroOpAB = ZeroOpAB
   IdOpAB /*/ op = op
@@ -359,16 +380,39 @@ bindScalars (MulOp ops) = productOp $ map bindScalars ops
 bindScalars op = op
 
 -- This function is designed to be called after pushDownDag and bindScalars
-listDistribute :: Op -> [(Scalar, [Op])]
+listDistribute :: Op -> [([Op], Scalar)]
 listDistribute ZeroOp = []
-listDistribute IdOp = [(Const 1, [])]
-listDistribute (SMul sca op) = [(sca, [op])]
+listDistribute IdOp = [([], Const 1)]
+listDistribute (SMul sca op) = [([op], sca)]
 listDistribute (AddOp ops) = concat $ map listDistribute ops
 listDistribute (MulOp ops) = map combProdList $ sequence $ map listDistribute ops
-  where combProdList = foldr (\(s, ops) (s', ops') -> (s * s', ops ++ ops'))
-                       (Const 1, [])
-listDistribute op = [(Const 1, [op])]
+  where combProdList = foldr (\(ops, s) (ops', s') -> (ops ++ ops', s * s'))
+                       ([], Const 1)
+listDistribute op = [([op], Const 1)]
 
 expandOp :: Op -> Op
-expandOp = sumOp . (map (\(sca, ops) -> SMul sca $ productOp ops)) .
-           listDistribute . bindScalars . pushDownDag
+expandOp = cleanupOp . listToOp . listCollect . listDistribute . bindScalars .
+           pushDownDag
+  where listToOp = sumOp . (map (\(ops, sca) -> SMul sca $ productOp ops))
+        listCollect = Map.toAscList . (Map.fromAscListWith (+)) . sort
+
+cleanupOp :: Op -> Op
+cleanupOp (Dag op) = Dag $ cleanupOp op
+cleanupOp (SMul s op) = cleanupSMul (cleanupScalar s) (cleanupOp op)
+cleanupOp (AddOp (op:[])) = cleanupOp op
+cleanupOp (AddOp ops) = algSum $ map cleanupOp ops
+cleanupOp (MulOp (op:[])) = cleanupOp op
+cleanupOp (MulOp ops) = algProd $ map cleanupOp ops
+cleanupOp op = op
+
+cleanupSMul :: Scalar -> Op -> Op
+cleanupSMul (Const 1) op = op
+cleanupSMul (Const 0) op = ZeroOp
+cleanupSMul s op = SMul s op
+
+cleanupScalar :: Scalar -> Scalar
+cleanupScalar (Add (s:[])) = cleanupScalar s
+cleanupScalar (Mul (s:[])) = cleanupScalar s
+cleanupScalar (Add ss) = sum ss
+cleanupScalar (Mul ss) = product ss
+cleanupScalar s = s
