@@ -255,6 +255,8 @@ instance Algebra OpAB where
   op /*/ IdOpAB = op
   (TProd opa opb) /*/ (TProd opa' opb') = TProd (opa /*/ opa') (opb /*/ opb')
   (MulOpAB ops1) /*/ (MulOpAB ops2) = MulOpAB (ops1 ++ ops2)
+  (TProd opa opb) /*/ (MulOpAB ((TProd opa' opb'):ops)) =
+    MulOpAB $ (TProd (opa /*/ opa') (opb /*/ opb')):ops
   op /*/ (MulOpAB ops) = MulOpAB (op:ops)
   (MulOpAB ops) /*/ op = MulOpAB (ops ++ [op])
   op1 /*/ op2 = MulOpAB [op1, op2]
@@ -300,15 +302,10 @@ expandPowOp (PowOp op n)
   | n <= 0    = PowOp op n
   | n == 1    = op
   | otherwise = (expandPowOp op) /*/ (expandPowOp $ PowOp op $ n - 1)
-expandPowOp (AddOp ops) = sumOp $ map expandPowOp ops
-expandPowOp (MulOp ops) = productOp $ map expandPowOp ops
+expandPowOp (AddOp ops) = algSum $ map expandPowOp ops
+expandPowOp (MulOp ops) = algProd $ map expandPowOp ops
 expandPowOp op = op
 
-sumOp :: Foldable t => t Op -> Op
-sumOp = foldl (\acc x -> acc /+/ x) ZeroOp
-
-productOp :: Foldable t => t Op -> Op
-productOp = foldl (\acc x -> acc /*/ x) IdOp
 
 pushDownConj :: Scalar -> Scalar
 pushDownConj (Conj sca) = case sca of
@@ -365,21 +362,23 @@ pushDownDagAB (MulOpAB ops) = MulOpAB $ map pushDownDagAB ops
 pushDownDagAB (TProd op1 op2) = TProd (pushDownDag op1) (pushDownDag op2)
 pushDownDagAB op = op
 
+-- This function is designed to be called after pushDownDag and expandPow
 bindScalars :: Op -> Op
 bindScalars (SMul sca op) = case op of
-  MulOp []       -> SMul sca IdOp
-  MulOp (op:ops) -> MulOp $ map bindScalars $ (SMul sca op):ops
+  MulOp []       -> sca */ IdOp
+  MulOp (op:ops) -> MulOp $ map bindScalars $ (sca */ op):ops
   AddOp []       -> ZeroOp
-  AddOp ops      -> AddOp $ map (bindScalars . (SMul sca)) ops
+  AddOp ops      -> AddOp $ map (bindScalars . (sca */)) ops
   ZeroOp         -> ZeroOp
   op             -> SMul sca op
 bindScalars (Dag op) = dag $ bindScalars op
 bindScalars (PowOp op n) = PowOp (bindScalars op) n
-bindScalars (AddOp ops) = sumOp $ map bindScalars ops
-bindScalars (MulOp ops) = productOp $ map bindScalars ops
+bindScalars (AddOp ops) = algSum $ map bindScalars ops
+bindScalars (MulOp ops) = algProd $ map bindScalars ops
 bindScalars op = op
 
--- This function is designed to be called after pushDownDag and bindScalars
+-- This function is designed to be called after pushDownDag, bindScalars, and
+-- expandPow
 listDistribute :: Op -> [([Op], Scalar)]
 listDistribute ZeroOp = []
 listDistribute IdOp = [([], Const 1)]
@@ -392,8 +391,8 @@ listDistribute op = [([op], Const 1)]
 
 expandOp :: Op -> Op
 expandOp = cleanupOp . listToOp . listCollect . listDistribute . bindScalars .
-           pushDownDag
-  where listToOp = sumOp . (map (\(ops, sca) -> SMul sca $ productOp ops))
+           pushDownDag . expandPowOp
+  where listToOp = algSum . (map (\(ops, sca) -> SMul sca $ algProd ops))
         listCollect = Map.toAscList . (Map.fromAscListWith (+)) . sort
 
 cleanupOp :: Op -> Op
