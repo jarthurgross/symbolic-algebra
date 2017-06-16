@@ -14,6 +14,7 @@ u = IdOp /+/ (SMul (Const $ e 4) h) /+/ (SMul (Const (-1/2)) (h /*/ h))
 
 data Scalar = Const Cyclotomic
             | Var String
+            | RealVar String
             | Neg Scalar
             | Conj Scalar
             | Pow Scalar Integer
@@ -51,6 +52,7 @@ instance Ord Cyclotomic where
 instance Show Scalar where
   show (Const c) = show c
   show (Var str) = str
+  show (RealVar str) = str
   show (Neg sca) = "−" ++ (showAddParen sca)
   show (Conj sca) = case sca of
     Var str -> str ++ "*"
@@ -110,6 +112,7 @@ conjScalar :: Scalar -> Scalar
 conjScalar (Const c) = Const $ conj c
 conjScalar (Abs sca) = Abs sca
 conjScalar (Conj sca) = sca
+conjScalar (RealVar str) = RealVar str
 conjScalar sca = Conj sca
 
 instance Show Op where
@@ -271,6 +274,26 @@ sumOp = foldl (\acc x -> acc /+/ x) ZeroOp
 productOp :: Foldable t => t Op -> Op
 productOp = foldl (\acc x -> acc /*/ x) IdOp
 
+pushDownConj :: Scalar -> Scalar
+pushDownConj (Conj sca) = case sca of
+  Const c     -> Const $ conj c
+  Var str     -> conjScalar $ Var str
+  RealVar str -> RealVar str
+  Neg sca'    -> Neg $ pushDownConj $ conjScalar sca'
+  Conj sca'   -> pushDownConj sca'
+  Pow sca' n  -> Pow (pushDownConj $ conjScalar sca') n
+  Abs sca'    -> Abs $ pushDownConj sca'
+  Sgn sca'    -> Sgn $ pushDownConj $ conjScalar sca'
+  Add scas    -> Add $ map (pushDownConj . conjScalar) scas
+  Mul scas    -> Mul $ map (pushDownConj . conjScalar) scas
+pushDownConj (Neg sca) = Neg $ pushDownConj sca
+pushDownConj (Pow sca n) = Pow (pushDownConj sca) n
+pushDownConj (Abs sca) = Abs $ pushDownConj sca
+pushDownConj (Sgn sca) = Sgn $ pushDownConj sca
+pushDownConj (Add scas) = Add $ map pushDownConj scas
+pushDownConj (Mul scas) = Mul $ map pushDownConj scas
+pushDownConj sca = sca
+
 pushDownDag :: Op -> Op
 pushDownDag (Dag op) = case op of
   OpVar s      -> Dag $ OpVar s
@@ -278,13 +301,33 @@ pushDownDag (Dag op) = case op of
   ZeroOp       -> ZeroOp
   IdOp         -> IdOp
   Dag op'      -> pushDownDag op'
-  SMul s op'   -> SMul (conjScalar s) (pushDownDag $ dag op')
+  SMul s op'   -> SMul (pushDownConj $ conjScalar s) (pushDownDag $ dag op')
+  PowOp op' n  -> PowOp (pushDownDag $ dag op') n
   AddOp ops    -> AddOp $ map (pushDownDag . dag) ops
   MulOp ops    -> MulOp $ map (pushDownDag . dag) $ reverse ops
-pushDownDag (SMul s op) = SMul s $ pushDownDag op
+pushDownDag (SMul s op) = SMul (pushDownConj s) (pushDownDag op)
 pushDownDag (AddOp ops) = AddOp $ map pushDownDag ops
 pushDownDag (MulOp ops) = MulOp $ map pushDownDag ops
 pushDownDag op = op
+
+pushDownDagAB :: OpAB -> OpAB
+pushDownDagAB (DagAB op) = case op of
+  OpABVar s     -> DagAB $ OpABVar s
+  HermOpABVar s -> HermOpABVar s
+  ZeroOpAB      -> ZeroOpAB
+  IdOpAB        -> IdOpAB
+  DagAB op'     -> pushDownDagAB op'
+  SMulAB s op'  -> SMulAB (pushDownConj $ conjScalar s)
+                   (pushDownDagAB $ dag op')
+  PowOpAB op' n -> PowOpAB (pushDownDagAB $ dag op') n
+  AddOpAB ops   -> AddOpAB $ map (pushDownDagAB . dag) ops
+  MulOpAB ops   -> MulOpAB $ map (pushDownDagAB . dag) $ reverse ops
+  TProd op1 op2 -> TProd (pushDownDag $ dag op1) (pushDownDag $ dag op2)
+pushDownDagAB (SMulAB s op) = SMulAB (pushDownConj s) (pushDownDagAB op)
+pushDownDagAB (AddOpAB ops) = AddOpAB $ map pushDownDagAB ops
+pushDownDagAB (MulOpAB ops) = MulOpAB $ map pushDownDagAB ops
+pushDownDagAB (TProd op1 op2) = TProd (pushDownDag op1) (pushDownDag op2)
+pushDownDagAB op = op
 
 bindScalars :: Op -> Op
 bindScalars (SMul sca op) = case op of
