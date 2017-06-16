@@ -2,15 +2,25 @@
 
 import Data.List
 import Data.Complex.Cyclotomic
+import Data.Ratio
 
 a = OpVar "A"
-b = OpVar "B"
+b = OpVar "b"
+bdg = dag b
+c = OpVar "c"
+cdg = dag c
 h = HermOpVar "H"
 
 x = Var "x"
 y = Var "y"
 
 u = IdOp /+/ (SMul (Const $ e 4) h) /+/ (SMul (Const (-1/2)) (h /*/ h))
+
+ui = IdOpAB /+/ sqrtdt */ (c >< bdg /-/ (cdg >< b)) /+/
+     (half * sqrtdt) */ (c >< bdg /-/ cdg >< b) /*/ (c >< bdg /-/ cdg >< b)
+
+sqrtdt = RealVar "√Δτ"
+half = Const $ gaussianRat (1 % 2) 0
 
 data Scalar = Const Cyclotomic
             | Var String
@@ -177,6 +187,11 @@ class Algebra a where
 
   infixr 6 /+/
   (/+/) :: a -> a -> a
+
+  infixl 6 /-/
+  (/-/) :: a -> a -> a
+
+  op1 /-/ op2 = op1 /+/ (-1) */ op2
 
   dag :: a -> a
 
