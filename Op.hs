@@ -195,13 +195,13 @@ class Algebra a where
   (/*/) :: a -> a -> a
 
   algProd :: (Foldable t) => t a -> a
-  algProd = foldl (/*/) unit
+  algProd = foldr (/*/) unit
 
   infixr 6 /+/
   (/+/) :: a -> a -> a
 
   algSum :: (Foldable t) => t a -> a
-  algSum = foldl (/+/) zero
+  algSum = foldr (/+/) zero
 
   infixl 6 /-/
   (/-/) :: a -> a -> a
