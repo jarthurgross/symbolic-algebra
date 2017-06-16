@@ -415,6 +415,23 @@ listDistribute (AddOp ops) = concat $ map listDistribute ops
 listDistribute (MulOp ops) = map combProdList $ sequence $ map listDistribute ops
 listDistribute op = [([op], Const 1)]
 
+-- This function is designed to be called after pushDownDagAB, bindScalarsAB,
+-- and expandPowAB
+listDistributeAB :: OpAB -> [([OpAB], Scalar)]
+listDistributeAB ZeroOpAB = []
+listDistributeAB IdOpAB = [([], Const 1)]
+listDistributeAB (SMulAB sca op) = [([op], sca)]
+listDistributeAB (AddOpAB ops) = concat $ map listDistributeAB ops
+listDistributeAB (MulOpAB ops) = map combProdList $ sequence $
+                                 map listDistributeAB ops
+listDistributeAB (TProd opa opb) = map listToTProd tprodList
+  where opaList = listDistribute opa
+        opbList = listDistribute opb
+        tprodList = sequence [opaList, opbList]
+        listToTProd ((opsa, sa):(opsb, sb):[]) = ([(algProd opsa) ><
+                                                 (algProd opsb)], (sa * sb))
+listDistributeAB op = [([op], Const 1)]
+
 -- Combine a list of operator products (where each product is represented as a
 -- tuple whose first element is a list of the operator factors and whose second
 -- element is a scalar prefactor) into a single operator product in the same
@@ -426,6 +443,11 @@ combProdList = foldr (\(ops, s) (ops', s') -> (ops ++ ops', s * s'))
 expandOp :: Op -> Op
 expandOp = cleanupOp . listToAlg . listCollect . listDistribute . bindScalars .
            pushDownDag . expandPowOp
+
+-- Still need to implement cleanup, and like the rest of the functions here no
+-- Scalar simplification is currently being performed.
+expandOpAB = listToAlg . listCollect . listDistributeAB . bindScalarsAB .
+             pushDownDagAB . expandPowOpAB
 
 listToAlg :: (Algebra a) => [([a], Scalar)] -> a
 listToAlg = algSum . (map (\(ops, sca) -> sca */ (algProd ops)))
