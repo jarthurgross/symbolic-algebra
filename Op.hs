@@ -413,15 +413,25 @@ listDistribute IdOp = [([], Const 1)]
 listDistribute (SMul sca op) = [([op], sca)]
 listDistribute (AddOp ops) = concat $ map listDistribute ops
 listDistribute (MulOp ops) = map combProdList $ sequence $ map listDistribute ops
-  where combProdList = foldr (\(ops, s) (ops', s') -> (ops ++ ops', s * s'))
-                       ([], Const 1)
 listDistribute op = [([op], Const 1)]
 
+-- Combine a list of operator products (where each product is represented as a
+-- tuple whose first element is a list of the operator factors and whose second
+-- element is a scalar prefactor) into a single operator product in the same
+-- representation as though the products themselves were multiplied together.
+combProdList :: (Foldable t) => t ([a], Scalar) -> ([a], Scalar)
+combProdList = foldr (\(ops, s) (ops', s') -> (ops ++ ops', s * s'))
+               ([], Const 1)
+
 expandOp :: Op -> Op
-expandOp = cleanupOp . listToOp . listCollect . listDistribute . bindScalars .
+expandOp = cleanupOp . listToAlg . listCollect . listDistribute . bindScalars .
            pushDownDag . expandPowOp
-  where listToOp = algSum . (map (\(ops, sca) -> SMul sca $ algProd ops))
-        listCollect = Map.toAscList . (Map.fromAscListWith (+)) . sort
+
+listToAlg :: (Algebra a) => [([a], Scalar)] -> a
+listToAlg = algSum . (map (\(ops, sca) -> sca */ (algProd ops)))
+
+listCollect :: (Ord a, Ord s, Num s) => [(a, s)] -> [(a, s)]
+listCollect = Map.toAscList . (Map.fromAscListWith (+)) . sort
 
 cleanupOp :: Op -> Op
 cleanupOp (Dag op) = Dag $ cleanupOp op
