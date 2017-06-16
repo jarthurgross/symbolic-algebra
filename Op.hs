@@ -454,7 +454,25 @@ combProdList = foldr (\(ops, s) (ops', s') -> (ops ++ ops', s * s'))
                ([], fromInteger 1)
 
 expand :: Scalar -> Scalar
-expand = listToSca . listCollect . listDistribute . pushDownConj . expandPow
+expand = listToSca . (map (\(scas, c) -> (makePows scas, c))) . listCollect .
+         listDistribute . pushDownConj . expandPow
+
+-- Designed for lists of Scalars that don't include constants
+makePows :: [Scalar] -> [Scalar]
+makePows scas = foldr buildProd [] scas
+  where buildProd (Pow sca n) ((Pow sca' m):scas)
+          | sca == sca' && n >= 1 && m >= 0 = (Pow sca $ n + m):scas
+          | otherwise                       = (Pow sca n):(Pow sca' m):scas
+        buildProd (Pow sca n) (sca':scas)
+          | sca == sca' && n >= 1 = (Pow sca $ n + 1):scas
+          | otherwise             = (Pow sca n):sca':scas
+        buildProd sca ((Pow sca' m):scas)
+          | sca == sca' && m >= 0 = (Pow sca $ m + 1):scas
+          | otherwise             = sca:(Pow sca' m):scas
+        buildProd sca (sca':scas)
+          | sca == sca' = (Pow sca 2):scas
+          | otherwise   = sca:sca':scas
+        buildProd sca scas = sca:scas
 
 expandOp :: Op -> Op
 expandOp = cleanupOp . listToAlg . canonicizeScalars . listCollect .
