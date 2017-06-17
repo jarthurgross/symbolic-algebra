@@ -73,8 +73,12 @@ instance Show Scalar where
   show (Abs sca) = "|" ++ (show sca) ++ "|"
   show (Sgn sca) = "sgn(" ++ (show sca) ++ ")"
   show (Pow sca n) = case sca of
-    Var str -> str ++ (toSupScr n)
-    sca     -> "(" ++ (show sca) ++ ")" ++ (toSupScr n)
+    Var str     -> (show sca) ++ (toSupScr n)
+    RealVar str -> (show sca) ++ (toSupScr n)
+    Conj sca'   -> (show sca) ++ (toSupScr n)
+    Abs sca'    -> (show sca) ++ (toSupScr n)
+    Sgn sca'    -> (show sca) ++ (toSupScr n)
+    sca         -> "(" ++ (show sca) ++ ")" ++ (toSupScr n)
 
 toSupScr :: Integer -> String
 toSupScr n = map repl $ show n
@@ -148,7 +152,9 @@ instance Show Op where
     ZeroOp      -> (show op) ++ (toSupScr n)
     IdOp        -> (show op) ++ (toSupScr n)
     OpVar s     -> (show op) ++ (toSupScr n)
+    Dag op'     -> (show op) ++ (toSupScr n)
     HermOpVar s -> (show op) ++ (toSupScr n)
+
     op          -> "(" ++ (show op) ++ ")" ++ (toSupScr n)
   show (AddOp ops) = intercalate " + " $ map show ops
   show (MulOp ops) = intercalate "⋅" $ map showAddParenOp ops
@@ -174,6 +180,7 @@ instance Show OpAB where
     IdOpAB        -> (show op) ++ (toSupScr n)
     OpABVar s     -> (show op) ++ (toSupScr n)
     HermOpABVar s -> (show op) ++ (toSupScr n)
+    DagAB op'     -> (show op) ++ (toSupScr n)
     op            -> "(" ++ (show op) ++ ")" ++ (toSupScr n)
   show (AddOpAB ops) = intercalate " + " $ map show ops
   show (MulOpAB ops) = intercalate "⋅" $ map showAddParenOpAB ops
