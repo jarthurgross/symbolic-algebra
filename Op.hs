@@ -658,3 +658,38 @@ collectOnB op = productOpABSum /+/ (listToAlg others)
         partitionTProds other (tprods, others) = (tprods, other:others)
         distList = listDistributeOpAB $ bindScalarsAB $ pushDownDagAB $
                    expandPowOpAB op
+
+-- Normal order the operators in the right part of the tensor product. Need to
+-- supply the operator "a" on the right part that satisfies [a, dag a] = IdOp.
+normalOrderB :: Op -> OpAB -> OpAB
+normalOrderB a op = normalOrderB' a $ collectOnA op
+  where normalOrderB' a op = case op of
+          AddOpAB ops   -> algSum $ map (normalOrderB' a) ops
+          TProd opa opb -> opa >< (normalOrder a $ expandPowOp $ expandOp opb)
+          op            -> op
+
+-- Normal order a supplied operator "a" that satisfies [a, dag a] = IdOp.
+normalOrder :: Op -> Op -> Op
+normalOrder a = (converge (==) . (iterate $ expandOp . (commuteOp a) .
+                expandPowOp))
+
+commuteOp :: Op -> Op -> Op
+commuteOp a (AddOp ops) = algSum $ map (commuteOp a) ops
+commuteOp a (MulOp ops) = algProd $ listCommute a ops
+commuteOp a (SMul sca op) = sca */ (commuteOp a op)
+commuteOp a op = op
+
+listCommute :: Op -> [Op] -> [Op]
+listCommute a (op:(Dag op'):ops)
+  | a == op && a == op' = ((dag a) /*/ a /+/ IdOp):ops
+  | otherwise           = op:(listCommute a $ (dag op'):ops)
+listCommute a (op:ops) = op:(listCommute a ops)
+listCommute _ [] = []
+
+-- Applies a function repeatedly until the last two function applications
+-- satisfy some convergence criterion, returning the last function application.
+-- Taken from http://stackoverflow.com/a/7443379/1236650
+converge :: (a -> a -> Bool) -> [a] -> a
+converge p (x:ys@(y:_))
+  | p x y     = y
+  | otherwise = converge p ys
