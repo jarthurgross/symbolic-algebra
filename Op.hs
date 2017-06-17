@@ -69,7 +69,7 @@ instance Show Scalar where
     Var str -> str ++ "*"
     sca     -> "(" ++ (show sca) ++ ")*"
   show (Add scas) = intercalate " + " $ map show scas
-  show (Mul scas) = intercalate "⋅" $ map showAddParen scas
+  show (Mul scas) = concat $ map showAddParen scas
   show (Abs sca) = "|" ++ (show sca) ++ "|"
   show (Sgn sca) = "sgn(" ++ (show sca) ++ ")"
   show (Pow sca n) = case sca of
@@ -157,7 +157,7 @@ instance Show Op where
 
     op          -> "(" ++ (show op) ++ ")" ++ (toSupScr n)
   show (AddOp ops) = intercalate " + " $ map show ops
-  show (MulOp ops) = intercalate "⋅" $ map showAddParenOp ops
+  show (MulOp ops) = concat $ map showAddParenOp ops
 
 showAddParenOp :: Op -> String
 showAddParenOp (AddOp ops) = "(" ++ (intercalate " + " $ map show ops) ++ ")"
@@ -183,7 +183,7 @@ instance Show OpAB where
     DagAB op'     -> (show op) ++ (toSupScr n)
     op            -> "(" ++ (show op) ++ ")" ++ (toSupScr n)
   show (AddOpAB ops) = intercalate " + " $ map show ops
-  show (MulOpAB ops) = intercalate "⋅" $ map showAddParenOpAB ops
+  show (MulOpAB ops) = concat $ map showAddParenOpAB ops
   show (TProd op1 op2) = (showAddParenOp op1) ++ "⊗" ++ (showAddParenOp op2)
 
 showAddParenOpAB :: OpAB -> String
