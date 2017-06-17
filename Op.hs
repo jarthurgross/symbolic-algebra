@@ -636,3 +636,25 @@ elimPowersOpAB eps n op = case op of
   MulOpAB ops    -> algProd $ map (elimPowersOpAB eps n) ops
   TProd opa opb  -> (elimPowersOp eps n opa) >< (elimPowersOp eps n opb)
   op             -> op
+
+collectOnA :: OpAB -> OpAB
+collectOnA op = productOpABSum /+/ (listToAlg others)
+  where productOpABSum = algSum $ map (\(opa, opb) -> opa >< opb) $
+                         Map.toAscList $ Map.fromAscListWith (/+/) $ sort tprods
+        (tprods, others) = foldr partitionTProds ([], []) distList
+        partitionTProds ([TProd opa opb], sca) (tprods, others) =
+          ((opa, sca */ opb):tprods, others)
+        partitionTProds other (tprods, others) = (tprods, other:others)
+        distList = listDistributeOpAB $ bindScalarsAB $ pushDownDagAB $
+                   expandPowOpAB op
+
+collectOnB :: OpAB -> OpAB
+collectOnB op = productOpABSum /+/ (listToAlg others)
+  where productOpABSum = algSum $ map (\(opb, opa) -> opa >< opb) $
+                         Map.toAscList $ Map.fromAscListWith (/+/) $ sort tprods
+        (tprods, others) = foldr partitionTProds ([], []) distList
+        partitionTProds ([TProd opa opb], sca) (tprods, others) =
+          ((opb, sca */ opa):tprods, others)
+        partitionTProds other (tprods, others) = (tprods, other:others)
+        distList = listDistributeOpAB $ bindScalarsAB $ pushDownDagAB $
+                   expandPowOpAB op
