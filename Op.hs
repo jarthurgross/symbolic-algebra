@@ -598,3 +598,41 @@ cleanupScalar (Mul (s:[])) = cleanupScalar s
 cleanupScalar (Add ss) = sum ss
 cleanupScalar (Mul ss) = product ss
 cleanupScalar s = s
+
+-- This only works for truncating at orders higher than 1
+truncateToOrder :: Scalar -> Integer -> Scalar -> Scalar
+truncateToOrder eps n = expand . elimPowers eps n . expand
+
+elimPowers eps n sca = case sca of
+  Neg sca'   -> negate $ elimPowers eps n sca'
+  Conj sca'  -> conjScalar $ elimPowers eps n sca'
+  Pow sca' m -> if sca' == eps && m >= n then Const 0 else
+                Pow (elimPowers eps n sca') m
+  Abs sca'   -> abs $ elimPowers eps n sca'
+  Sgn sca'   -> signum $ elimPowers eps n sca'
+  Add scas   -> sum $ map (elimPowers eps n) scas
+  Mul scas   -> product $ map (elimPowers eps n) scas
+  sca        -> sca
+
+truncateToOrderOp :: Scalar -> Integer -> Op -> Op
+truncateToOrderOp eps n = expandOp . elimPowersOp eps n . expandOp
+
+elimPowersOp eps n op = case op of
+  Dag op'      -> dag $ elimPowersOp eps n op'
+  SMul sca op' -> (elimPowers eps n sca) */ (elimPowersOp eps n op')
+  PowOp op' m  -> PowOp (elimPowersOp eps n op') m
+  AddOp ops    -> algSum $ map (elimPowersOp eps n) ops
+  MulOp ops    -> algProd $ map (elimPowersOp eps n) ops
+  op           -> op
+
+truncateToOrderOpAB :: Scalar -> Integer -> OpAB -> OpAB
+truncateToOrderOpAB eps n = expandOpAB . elimPowersOpAB eps n . expandOpAB
+
+elimPowersOpAB eps n op = case op of
+  DagAB op'      -> dag $ elimPowersOpAB eps n op'
+  SMulAB sca op' -> (elimPowers eps n sca) */ (elimPowersOpAB eps n op')
+  PowOpAB op' m  -> PowOpAB (elimPowersOpAB eps n op') m
+  AddOpAB ops    -> algSum $ map (elimPowersOpAB eps n) ops
+  MulOpAB ops    -> algProd $ map (elimPowersOpAB eps n) ops
+  TProd opa opb  -> (elimPowersOp eps n opa) >< (elimPowersOp eps n opb)
+  op             -> op
