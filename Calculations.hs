@@ -2,7 +2,6 @@ import Op
 import Data.Complex.Cyclotomic
 import Data.Ratio
 
-a = OpVar "A"
 b = OpVar "b"
 bdg = dag b
 c = OpVar "c"
@@ -19,3 +18,8 @@ ui = IdOpAB /+/ sqrtdt */ (c >< bdg /-/ (cdg >< b)) /+/
 
 sqrtdt = RealVar "√\0773Δ\0773τ"
 half = Const $ gaussianRat (1 % 2) 0
+
+bout = collectOnB $ normalOrderB b $ truncateToOrderOpAB sqrtdt 3 $
+       (dag ui) /*/ (IdOp >< b) /*/ ui
+
+boutdagbout = collectOnB $ truncateToOrderOpAB sqrtdt 3 $ (dag bout) /*/ bout
