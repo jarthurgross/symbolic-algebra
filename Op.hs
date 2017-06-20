@@ -34,6 +34,12 @@ data Scalar = Const Cyclotomic
             | Add [Scalar]
             | Mul [Scalar] deriving (Eq, Ord)
 
+data Vec = ZeroVec
+         | VecVar String
+         | SMulVec Scalar Vec
+         | LeftAction Op Vec
+         | AddVec [Vec]
+
 data Op = ZeroOp
         | IdOp
         | OpVar String
@@ -135,6 +141,49 @@ conjScalar (Abs sca) = Abs sca
 conjScalar (Conj sca) = sca
 conjScalar (RealVar str) = RealVar str
 conjScalar sca = Conj sca
+
+instance Show Vec where
+  show ZeroVec = "|\0824" ++ "0⟩"
+  show (VecVar str) = "|" ++ str ++ "⟩"
+  show (SMulVec sca vec) = (showAddParen sca) ++ "⋅" ++ (showAddParenVec vec)
+  show (LeftAction op vec) = (showAddParenOp op) ++ (showAddParenVec vec)
+  show (AddVec vecs) = intercalate " + " $ map show vecs
+
+showAddParenVec :: Vec -> String
+showAddParenVec (AddVec vecs) = "(" ++ (show $ AddVec vecs) ++ ")"
+showAddParenVec vec = show vec
+
+class VecSpace v where
+  zerovec :: v
+
+  infixr 7 *|
+  (*|) :: Scalar -> v -> v
+
+  infix 7 /*|
+  (/*|) :: Op -> v -> v
+
+  infix 6 |+|
+  (|+|) :: v -> v -> v
+
+instance VecSpace Vec where
+  zerovec = ZeroVec
+
+  sca *| ZeroVec = zerovec
+  (Const 0) *| vec = zerovec
+  (Const 1) *| vec = vec
+  sca *| vec = SMulVec sca vec
+
+  ZeroOp /*| vec = zerovec
+  op /*| ZeroVec = zerovec
+  IdOp /*| vec = vec
+  op /*| vec = LeftAction op vec
+
+  ZeroVec |+| vec = vec
+  vec |+| ZeroVec = vec
+  (AddVec vecs1) |+| (AddVec vecs2) = AddVec $ vecs1 ++ vecs2
+  (AddVec vecs) |+| vec = AddVec $ vecs ++ [vec]
+  vec |+| (AddVec vecs) = AddVec $ vec:vecs
+  vec1 |+| vec2 = AddVec [vec1, vec2]
 
 instance Show Op where
   show ZeroOp = "𝟘"
