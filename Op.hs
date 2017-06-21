@@ -23,7 +23,7 @@ data Vec = ZeroVec
          | VecVar String
          | SMulVec Scalar Vec
          | LeftAction Op Vec
-         | AddVec [Vec]
+         | AddVec [Vec] deriving (Eq, Ord)
 
 data Op = ZeroOp
         | IdOp
@@ -144,11 +144,14 @@ class VecSpace v where
   infixr 7 *|
   (*|) :: Scalar -> v -> v
 
-  infix 7 /*|
+  infixr 7 /*|
   (/*|) :: Op -> v -> v
 
-  infix 6 |+|
+  infixr 6 |+|
   (|+|) :: v -> v -> v
+
+  vecSum :: Foldable t => t v -> v
+  vecSum = foldr (|+|) zerovec
 
 instance VecSpace Vec where
   zerovec = ZeroVec
@@ -418,6 +421,16 @@ pushDownDagAB (MulOpAB ops) = MulOpAB $ map pushDownDagAB ops
 pushDownDagAB (TProd op1 op2) = TProd (pushDownDag op1) (pushDownDag op2)
 pushDownDagAB op = op
 
+bindScalarsVec :: Vec -> Vec
+bindScalarsVec (SMulVec sca vec) = case vec of
+  SMulVec sca' vec'  -> bindScalarsVec $ (sca * sca') *| vec'
+  LeftAction op vec' -> (bindScalarsOp $ sca */ op) /*| (bindScalarsVec vec')
+  AddVec vecs        -> vecSum $ map (bindScalarsVec . (sca *|)) vecs
+  vec                -> sca *| vec
+bindScalarsVec (LeftAction op vec) = (bindScalarsOp op) /*| (bindScalarsVec vec)
+bindScalarsVec (AddVec vecs) = vecSum $ map bindScalarsVec vecs
+bindScalarsVec vec = vec
+
 -- This function is designed to be called after pushDownDag and expandPow
 bindScalarsOp :: Op -> Op
 bindScalarsOp (SMul sca op) = case op of
@@ -460,6 +473,20 @@ listDistribute (Add scas) = concat $ map listDistribute scas
 listDistribute (Mul scas) = map combProdList $ sequence $ map listDistribute scas
 listDistribute (Neg sca) = listDistribute $ (-1) * sca
 listDistribute sca = [([sca], 1)]
+
+listDistributeVec :: Vec -> [(([Op], Vec), Scalar)]
+listDistributeVec ZeroVec = []
+listDistributeVec (SMulVec sca vec) = map (\(opvec, sca') ->
+                                      (opvec, sca * sca')) $
+                                      listDistributeVec vec
+listDistributeVec (LeftAction op vec) = map opVecCombine $
+                                        liftM2 (,) opList vecList
+  where opList = listDistributeOp op
+        vecList = listDistributeVec vec
+        opVecCombine ((ops, sca), ((ops', vec), sca')) = ((ops ++ ops', vec),
+                                                          sca * sca')
+listDistributeVec (AddVec vecs) = concat $ map listDistributeVec vecs
+listDistributeVec vec = [(([], vec), Const 1)]
 
 -- This function is designed to be called after pushDownDag, bindScalarsOp, and
 -- expandPowOp
@@ -504,6 +531,9 @@ combProdList = foldr (\(ops, s) (ops', s') -> (ops ++ ops', s * s'))
 expand :: Scalar -> Scalar
 expand = collectPows . listToSca . listCollect . listDistribute . pushDownConj .
          expandPow
+
+expandVec :: Vec -> Vec
+expandVec = listToVec . listCollect . listDistributeVec
 
 expandOp :: Op -> Op
 expandOp = collectPowOps . cleanupOp . listToAlg . canonicizeScalars .
@@ -597,6 +627,10 @@ canonicizeScalars = map (\(ops, sca) -> (ops, expand sca))
 
 listToSca :: [([Scalar], Cyclotomic)] -> Scalar
 listToSca = sum . (map (\(scas, c) -> (Const c) * (product scas)))
+
+listToVec :: [(([Op], Vec), Scalar)] -> Vec
+listToVec = vecSum . (map (\((ops, vec), sca) ->
+            sca *| (algProd ops) /*| vec))
 
 listToAlg :: (Algebra a) => [([a], Scalar)] -> a
 listToAlg = algSum . (map (\(ops, sca) -> sca */ (algProd ops)))
