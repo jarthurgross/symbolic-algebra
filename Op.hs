@@ -5,6 +5,7 @@ module Op where
 import Data.List
 import Data.Complex.Cyclotomic
 import Data.Ratio
+import Control.Monad
 import qualified Data.Map.Strict as Map
 
 data Scalar = Const Cyclotomic
@@ -418,36 +419,38 @@ pushDownDagAB (TProd op1 op2) = TProd (pushDownDag op1) (pushDownDag op2)
 pushDownDagAB op = op
 
 -- This function is designed to be called after pushDownDag and expandPow
-bindScalars :: Op -> Op
-bindScalars (SMul sca op) = case op of
-  MulOp []       -> sca */ IdOp
-  MulOp (op:ops) -> MulOp $ map bindScalars $ (sca */ op):ops
-  AddOp []       -> ZeroOp
-  AddOp ops      -> AddOp $ map (bindScalars . (sca */)) ops
-  ZeroOp         -> ZeroOp
-  op             -> SMul sca op
-bindScalars (Dag op) = dag $ bindScalars op
-bindScalars (PowOp op n) = PowOp (bindScalars op) n
-bindScalars (AddOp ops) = algSum $ map bindScalars ops
-bindScalars (MulOp ops) = algProd $ map bindScalars ops
-bindScalars op = op
+bindScalarsOp :: Op -> Op
+bindScalarsOp (SMul sca op) = case op of
+  SMul sca' op'  -> bindScalarsOp $ (sca * sca') */ op'
+  MulOp []       -> sca */ unit
+  MulOp (op:ops) -> algProd $ map bindScalarsOp $ (sca */ op):ops
+  AddOp []       -> zero
+  AddOp ops      -> algSum $ map (bindScalarsOp . (sca */)) ops
+  ZeroOp         -> zero
+  op             -> sca */ op
+bindScalarsOp (Dag op) = dag $ bindScalarsOp op
+bindScalarsOp (PowOp op n) = PowOp (bindScalarsOp op) n
+bindScalarsOp (AddOp ops) = algSum $ map bindScalarsOp ops
+bindScalarsOp (MulOp ops) = algProd $ map bindScalarsOp ops
+bindScalarsOp op = op
 
 -- This function is designed to be called after pushDownDagAB and expandPowAB
-bindScalarsAB :: OpAB -> OpAB
-bindScalarsAB (SMulAB sca op) = case op of
-  MulOpAB []       -> sca */ IdOpAB
-  MulOpAB (op:ops) -> MulOpAB $ map bindScalarsAB $ (sca */ op):ops
-  AddOpAB []       -> ZeroOpAB
-  AddOpAB ops      -> AddOpAB $ map (bindScalarsAB . (sca */)) ops
-  ZeroOpAB         -> ZeroOpAB
-  TProd opa opb    -> (bindScalars $ sca */ opa) >< (bindScalars opb)
+bindScalarsOpAB :: OpAB -> OpAB
+bindScalarsOpAB (SMulAB sca op) = case op of
+  SMulAB sca' op'  -> bindScalarsOpAB $ (sca * sca') */ op'
+  MulOpAB []       -> sca */ unit
+  MulOpAB (op:ops) -> MulOpAB $ map bindScalarsOpAB $ (sca */ op):ops
+  AddOpAB []       -> zero
+  AddOpAB ops      -> algSum $ map (bindScalarsOpAB . (sca */)) ops
+  ZeroOpAB         -> zero
+  TProd opa opb    -> (bindScalarsOp $ sca */ opa) >< (bindScalarsOp opb)
   op               -> sca */ op
-bindScalarsAB (DagAB op) = dag $ bindScalarsAB op
-bindScalarsAB (PowOpAB op n) = PowOpAB (bindScalarsAB op) n
-bindScalarsAB (AddOpAB ops) = algSum $ map bindScalarsAB ops
-bindScalarsAB (MulOpAB ops) = algProd $ map bindScalarsAB ops
-bindScalarsAB (TProd opa opb) = (bindScalars opa) >< (bindScalars opb)
-bindScalarsAB op = op
+bindScalarsOpAB (DagAB op) = dag $ bindScalarsOpAB op
+bindScalarsOpAB (PowOpAB op n) = PowOpAB (bindScalarsOpAB op) n
+bindScalarsOpAB (AddOpAB ops) = algSum $ map bindScalarsOpAB ops
+bindScalarsOpAB (MulOpAB ops) = algProd $ map bindScalarsOpAB ops
+bindScalarsOpAB (TProd opa opb) = (bindScalarsOp opa) >< (bindScalarsOp opb)
+bindScalarsOpAB op = op
 
 -- This function is designed to be called after pushDownConj and expandPow
 listDistribute :: Scalar -> [([Scalar], Cyclotomic)]
@@ -458,30 +461,35 @@ listDistribute (Mul scas) = map combProdList $ sequence $ map listDistribute sca
 listDistribute (Neg sca) = listDistribute $ (-1) * sca
 listDistribute sca = [([sca], 1)]
 
--- This function is designed to be called after pushDownDag, bindScalars, and
+-- This function is designed to be called after pushDownDag, bindScalarsOp, and
 -- expandPowOp
+-- (With the current action on SMul sca op, we might not need bindScalarsOp
+-- anymore)
 listDistributeOp :: Op -> [([Op], Scalar)]
 listDistributeOp ZeroOp = []
 listDistributeOp IdOp = [([], Const 1)]
-listDistributeOp (SMul sca op) = [([op], sca)]
+listDistributeOp (SMul sca op) = map (\(ops, sca') -> (ops, sca * sca')) $
+                                 listDistributeOp op
 listDistributeOp (AddOp ops) = concat $ map listDistributeOp ops
-listDistributeOp (MulOp ops) = map combProdList $ sequence $ map listDistributeOp ops
+listDistributeOp (MulOp ops) = map combProdList $ sequence $
+                               map listDistributeOp ops
 listDistributeOp op = [([op], Const 1)]
 
--- This function is designed to be called after pushDownDagAB, bindScalarsAB,
+-- This function is designed to be called after pushDownDagAB, bindScalarsOpAB,
 -- and expandPowAB
 listDistributeOpAB :: OpAB -> [([OpAB], Scalar)]
 listDistributeOpAB ZeroOpAB = []
 listDistributeOpAB IdOpAB = [([], Const 1)]
-listDistributeOpAB (SMulAB sca op) = [([op], sca)]
+listDistributeOpAB (SMulAB sca op) = map (\(ops, sca') -> (ops, sca * sca')) $
+                                     listDistributeOpAB op
 listDistributeOpAB (AddOpAB ops) = concat $ map listDistributeOpAB ops
 listDistributeOpAB (MulOpAB ops) = map combProdList $ sequence $
                                    map listDistributeOpAB ops
 listDistributeOpAB (TProd opa opb) = map listToTProd tprodList
   where opaList = listDistributeOp opa
         opbList = listDistributeOp opb
-        tprodList = sequence [opaList, opbList]
-        listToTProd ((opsa, sa):(opsb, sb):[]) = ([(algProd opsa) ><
+        tprodList = liftM2 (,) opaList opbList
+        listToTProd ((opsa, sa), (opsb, sb)) = ([(algProd opsa) ><
                                                  (algProd opsb)], (sa * sb))
 listDistributeOpAB op = [([op], Const 1)]
 
@@ -499,11 +507,11 @@ expand = collectPows . listToSca . listCollect . listDistribute . pushDownConj .
 
 expandOp :: Op -> Op
 expandOp = collectPowOps . cleanupOp . listToAlg . canonicizeScalars .
-           listCollect . listDistributeOp . bindScalars . pushDownDag .
+           listCollect . listDistributeOp . bindScalarsOp . pushDownDag .
            expandPowOp
 
 expandOpAB = collectPowOpABs . cleanupOpAB . listToAlg . canonicizeScalars .
-             listCollect .  listDistributeOpAB . bindScalarsAB . pushDownDagAB .
+             listCollect .  listDistributeOpAB . bindScalarsOpAB . pushDownDagAB .
              expandPowOpAB
 
 collectPows :: Scalar -> Scalar
@@ -678,7 +686,7 @@ collectOnA op = productOpABSum /+/ (listToAlg others)
         partitionTProds ([TProd opa opb], sca) (tprods, others) =
           ((opa, sca */ opb):tprods, others)
         partitionTProds other (tprods, others) = (tprods, other:others)
-        distList = listDistributeOpAB $ bindScalarsAB $ pushDownDagAB $
+        distList = listDistributeOpAB $ bindScalarsOpAB $ pushDownDagAB $
                    expandPowOpAB op
 
 collectOnB :: OpAB -> OpAB
@@ -689,7 +697,7 @@ collectOnB op = productOpABSum /+/ (listToAlg others)
         partitionTProds ([TProd opa opb], sca) (tprods, others) =
           ((opb, sca */ opa):tprods, others)
         partitionTProds other (tprods, others) = (tprods, other:others)
-        distList = listDistributeOpAB $ bindScalarsAB $ pushDownDagAB $
+        distList = listDistributeOpAB $ bindScalarsOpAB $ pushDownDagAB $
                    expandPowOpAB op
 
 -- Normal order the operators in the right part of the tensor product. Need to
