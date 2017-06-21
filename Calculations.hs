@@ -23,3 +23,6 @@ bout = collectOnB $ normalOrderB b $ truncateToOrderOpAB sqrtdt 3 $
        (dag ui) /*/ (IdOp >< b) /*/ ui
 
 boutdagbout = collectOnB $ truncateToOrderOpAB sqrtdt 3 $ (dag bout) /*/ bout
+
+ket0 = VecVar "0"
+ket1 = VecVar "1"
