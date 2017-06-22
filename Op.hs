@@ -16,6 +16,8 @@ data Scalar = Const Cyclotomic
             | Pow Scalar Integer
             | Abs Scalar
             | Sgn Scalar
+            | Tr Op
+            | TrAB OpAB
             | Add [Scalar]
             | Mul [Scalar] deriving (Eq, Ord)
 
@@ -32,6 +34,8 @@ data Op = ZeroOp
         | Dag Op
         | SMul Scalar Op
         | PowOp Op Integer
+        | TrA OpAB
+        | TrB OpAB
         | AddOp [Op]
         | MulOp [Op] deriving (Eq, Ord)
 
@@ -59,10 +63,6 @@ instance Show Scalar where
   show (Conj sca) = case sca of
     Var str -> str ++ "*"
     sca     -> "(" ++ (show sca) ++ ")*"
-  show (Add scas) = intercalate " + " $ map show scas
-  show (Mul scas) = concat $ map showAddParen scas
-  show (Abs sca) = "|" ++ (show sca) ++ "|"
-  show (Sgn sca) = "sgn(" ++ (show sca) ++ ")"
   show (Pow sca n) = case sca of
     Var str     -> (show sca) ++ (toSupScr n)
     RealVar str -> (show sca) ++ (toSupScr n)
@@ -70,6 +70,12 @@ instance Show Scalar where
     Abs sca'    -> (show sca) ++ (toSupScr n)
     Sgn sca'    -> (show sca) ++ (toSupScr n)
     sca         -> "(" ++ (show sca) ++ ")" ++ (toSupScr n)
+  show (Abs sca) = "|" ++ (show sca) ++ "|"
+  show (Sgn sca) = "sgn(" ++ (show sca) ++ ")"
+  show (Tr op) = "Tr[" ++ (show op) ++ "]"
+  show (TrAB op) = "Tr[" ++ (show op) ++ "]"
+  show (Add scas) = intercalate " + " $ map show scas
+  show (Mul scas) = concat $ map showAddParen scas
 
 toSupScr :: Integer -> String
 toSupScr n = map repl $ show n
@@ -193,6 +199,8 @@ instance Show Op where
     HermOpVar s -> (show op) ++ (toSupScr n)
 
     op          -> "(" ++ (show op) ++ ")" ++ (toSupScr n)
+  show (TrA op) = "Trᴬ[" ++ (show op) ++ "]"
+  show (TrB op) = "Trᴮ[" ++ (show op) ++ "]"
   show (AddOp ops) = intercalate " + " $ map show ops
   show (MulOp ops) = concat $ map showAddParenOp ops
 
@@ -376,12 +384,16 @@ pushDownConj (Conj sca) = case sca of
   Pow sca' n  -> Pow (pushDownConj $ conjScalar sca') n
   Abs sca'    -> Abs $ pushDownConj sca'
   Sgn sca'    -> Sgn $ pushDownConj $ conjScalar sca'
+  Tr op       -> Tr $ pushDownDag $ dag op
+  TrAB op     -> TrAB $ pushDownDagAB $ dag op
   Add scas    -> Add $ map (pushDownConj . conjScalar) scas
   Mul scas    -> Mul $ map (pushDownConj . conjScalar) scas
 pushDownConj (Neg sca) = Neg $ pushDownConj sca
 pushDownConj (Pow sca n) = Pow (pushDownConj sca) n
 pushDownConj (Abs sca) = Abs $ pushDownConj sca
 pushDownConj (Sgn sca) = Sgn $ pushDownConj sca
+pushDownConj (Tr op) = Tr $ pushDownDag op
+pushDownConj (TrAB op) = TrAB $ pushDownDagAB op
 pushDownConj (Add scas) = Add $ map pushDownConj scas
 pushDownConj (Mul scas) = Mul $ map pushDownConj scas
 pushDownConj sca = sca
@@ -395,9 +407,13 @@ pushDownDag (Dag op) = case op of
   Dag op'      -> pushDownDag op'
   SMul s op'   -> SMul (pushDownConj $ conjScalar s) (pushDownDag $ dag op')
   PowOp op' n  -> PowOp (pushDownDag $ dag op') n
+  TrA op'      -> TrA $ pushDownDagAB $ dag op'
+  TrB op'      -> TrB $ pushDownDagAB $ dag op'
   AddOp ops    -> AddOp $ map (pushDownDag . dag) ops
   MulOp ops    -> MulOp $ map (pushDownDag . dag) $ reverse ops
 pushDownDag (SMul s op) = SMul (pushDownConj s) (pushDownDag op)
+pushDownDag (TrA op) = TrA $ pushDownDagAB op
+pushDownDag (TrB op) = TrB $ pushDownDagAB op
 pushDownDag (AddOp ops) = AddOp $ map pushDownDag ops
 pushDownDag (MulOp ops) = MulOp $ map pushDownDag ops
 pushDownDag op = op
@@ -469,6 +485,19 @@ bindScalarsOpAB op = op
 listDistribute :: Scalar -> [([Scalar], Cyclotomic)]
 listDistribute (Const 0) = []
 listDistribute (Const c) = [([], c)]
+listDistribute (Tr op) = concat $ map trList opList
+  where opList = listDistributeOp op
+        trList (ops, sca) = map (\(scas, c) ->
+                            ((Tr $ algProd $ makePowOps ops):scas, c)) $
+                            listDistribute sca
+listDistribute (TrAB op) = concat $ map trList opList
+  where opList = listDistributeOpAB op
+        trList (ops, sca) = case (collectPowOpABs $ algProd ops) of
+          TProd opa opb -> map (\(scas, c) ->
+                           ((Tr opa):(Tr opb):scas, c)) $
+                           listDistribute sca
+          op            -> map (\(scas, c) -> ((TrAB op):scas, c)) $
+                           listDistribute sca
 listDistribute (Add scas) = concat $ map listDistribute scas
 listDistribute (Mul scas) = map combProdList $ sequence $ map listDistribute scas
 listDistribute (Neg sca) = listDistribute $ (-1) * sca
@@ -497,6 +526,16 @@ listDistributeOp ZeroOp = []
 listDistributeOp IdOp = [([], Const 1)]
 listDistributeOp (SMul sca op) = map (\(ops, sca') -> (ops, sca * sca')) $
                                  listDistributeOp op
+listDistributeOp (TrA op) = concat $ map trList opList
+  where opList = listDistributeOpAB op
+        trList (ops, sca) = case (collectPowOpABs $ algProd ops) of
+          TProd opa opb -> listDistributeOp $ ((Tr opa) * sca) */ opb
+          op            -> [([TrA op], sca)]
+listDistributeOp (TrB op) = concat $ map trList opList
+  where opList = listDistributeOpAB op
+        trList (ops, sca) = case (collectPowOpABs $ algProd ops) of
+          TProd opa opb -> listDistributeOp $ ((Tr opb) * sca) */ opa
+          op            -> [([TrB op], sca)]
 listDistributeOp (AddOp ops) = concat $ map listDistributeOp ops
 listDistributeOp (MulOp ops) = map combProdList $ sequence $
                                map listDistributeOp ops

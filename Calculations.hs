@@ -8,6 +8,9 @@ c = OpVar "c"
 cdg = dag c
 h = HermOpVar "H"
 
+rho = HermOpVar "ρ"
+sigma = HermOpVar "σ"
+
 x = Var "x"
 y = Var "y"
 
