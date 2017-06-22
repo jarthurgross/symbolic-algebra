@@ -481,6 +481,18 @@ bindScalarsOpAB (MulOpAB ops) = algProd $ map bindScalarsOpAB ops
 bindScalarsOpAB (TProd opa opb) = (bindScalarsOp opa) >< (bindScalarsOp opb)
 bindScalarsOpAB op = op
 
+-- Taken from https://stackoverflow.com/a/11873846/1236650
+rotations :: [a] -> [[a]]
+rotations xs = init $ zipWith (++) (tails xs) (inits xs)
+
+simpTrProdListOp :: [Op] -> Op
+simpTrProdListOp ops = algProd $ makePowOps $ head $ sort $ rotations ops'
+  where ops' = fst $ head $ listDistributeOp $ expandPowOp $ algProd ops
+
+simpTrProdListOpAB :: [OpAB] -> OpAB
+simpTrProdListOpAB ops = algProd $ makePowOpABs $ head $ sort $ rotations ops'
+  where ops' = fst $ head $ listDistributeOpAB $ expandPowOpAB $ algProd ops
+
 -- This function is designed to be called after pushDownConj and expandPow
 listDistribute :: Scalar -> [([Scalar], Cyclotomic)]
 listDistribute (Const 0) = []
@@ -488,11 +500,11 @@ listDistribute (Const c) = [([], c)]
 listDistribute (Tr op) = concat $ map trList opList
   where opList = listDistributeOp op
         trList (ops, sca) = map (\(scas, c) ->
-                            ((Tr $ algProd $ makePowOps ops):scas, c)) $
+                            ((Tr $ simpTrProdListOp ops):scas, c)) $
                             listDistribute sca
 listDistribute (TrAB op) = concat $ map trList opList
   where opList = listDistributeOpAB op
-        trList (ops, sca) = case (collectPowOpABs $ algProd ops) of
+        trList (ops, sca) = case (simpTrProdListOpAB ops) of
           TProd opa opb -> map (\(scas, c) ->
                            ((Tr opa):(Tr opb):scas, c)) $
                            listDistribute sca
@@ -528,12 +540,12 @@ listDistributeOp (SMul sca op) = map (\(ops, sca') -> (ops, sca * sca')) $
                                  listDistributeOp op
 listDistributeOp (TrA op) = concat $ map trList opList
   where opList = listDistributeOpAB op
-        trList (ops, sca) = case (collectPowOpABs $ algProd ops) of
+        trList (ops, sca) = case (simpTrProdListOpAB ops) of
           TProd opa opb -> listDistributeOp $ ((Tr opa) * sca) */ opb
           op            -> [([TrA op], sca)]
 listDistributeOp (TrB op) = concat $ map trList opList
   where opList = listDistributeOpAB op
-        trList (ops, sca) = case (collectPowOpABs $ algProd ops) of
+        trList (ops, sca) = case (simpTrProdListOpAB ops) of
           TProd opa opb -> listDistributeOp $ ((Tr opb) * sca) */ opa
           op            -> [([TrB op], sca)]
 listDistributeOp (AddOp ops) = concat $ map listDistributeOp ops
