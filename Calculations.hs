@@ -2,6 +2,7 @@ import Op
 import Data.Complex.Cyclotomic
 import Data.Ratio
 import Data.List
+import Data.Monoid
 
 b = OpVar "b"
 bdg = dag b
@@ -149,3 +150,42 @@ simplifyPhaseOpAB (MulOpAB ops) = algProd $ map simplifyPhaseOpAB ops
 simplifyPhaseOpAB (TProd opa opb) = TProd (simplifyPhaseOp opa)
                                     (simplifyPhaseOp opb)
 simplifyPhaseOpAB op = op
+
+-- Put products in traces in some canonical order obtained through cyclic
+-- permutations.
+sortTrProdsOp :: (Op -> Op -> Ordering) -> Op -> Op
+sortTrProdsOp ord (Dag op) = dag $ sortTrProdsOp ord op
+sortTrProdsOp ord (SMul sca op) = (sortTrProdsScalar ord sca) */
+                                  (sortTrProdsOp ord op)
+sortTrProdsOp ord (PowOp op n) = PowOp (sortTrProdsOp ord op) n
+sortTrProdsOp ord (AddOp ops) = algSum $ map (sortTrProdsOp ord) ops
+sortTrProdsOp ord (MulOp ops) = algProd $ map (sortTrProdsOp ord) ops
+sortTrProdsOp ord op = op
+
+sortTrProdsScalar :: (Op -> Op -> Ordering) -> Scalar -> Scalar
+sortTrProdsScalar ord (Neg sca) = negate $ sortTrProdsScalar ord sca
+sortTrProdsScalar ord (Conj sca) = conjScalar $ sortTrProdsScalar ord sca
+sortTrProdsScalar ord (Pow sca n) = Pow (sortTrProdsScalar ord sca) n
+sortTrProdsScalar ord (Abs sca) = abs $ sortTrProdsScalar ord sca
+sortTrProdsScalar ord (Sgn sca) = signum $ sortTrProdsScalar ord sca
+sortTrProdsScalar ord (Tr (MulOp ops)) = Tr $ algProd $ head $
+                                         (sortBy $ compareList ord) $
+                                         rotations ops
+sortTrProdsScalar ord (Tr op) = Tr $ sortTrProdsOp ord op
+sortTrProdsScalar ord (Add scas) = sum $ map (sortTrProdsScalar ord) scas
+sortTrProdsScalar ord (Mul scas) = product $ map (sortTrProdsScalar ord) scas
+sortTrProdsScalar ord sca = sca
+
+-- From https://stackoverflow.com/a/9613175/1236650
+compareList :: (a -> b -> Ordering) -> [a] -> [b] -> Ordering
+compareList _ [] [] = EQ
+compareList _ (_:_) [] = GT
+compareList _ [] (_:_) = LT
+compareList comparer (x:xs) (y:ys) =
+    comparer x y <> compareList comparer xs ys
+
+ordSigmaFirst :: Op -> Op -> Ordering
+ordSigmaFirst (HermOpVar "σ") (HermOpVar "σ") = EQ
+ordSigmaFirst (HermOpVar "σ") op = LT
+ordSigmaFirst op (HermOpVar "σ") = GT
+ordSigmaFirst op1 op2 = compare op1 op2
