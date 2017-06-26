@@ -3,6 +3,7 @@
 module Op where
 
 import Data.List
+import Data.List.Ordered as Ordered
 import Data.Complex.Cyclotomic
 import Data.Ratio
 import Control.Monad
@@ -511,7 +512,8 @@ listDistribute (TrAB op) = concat $ map trList opList
           op            -> map (\(scas, c) -> ((TrAB op):scas, c)) $
                            listDistribute sca
 listDistribute (Add scas) = concat $ map listDistribute scas
-listDistribute (Mul scas) = map combProdList $ sequence $ map listDistribute scas
+listDistribute (Mul scas) = map combCommProdList $ sequence $
+                            map listDistribute scas
 listDistribute (Neg sca) = listDistribute $ (-1) * sca
 listDistribute sca = [([sca], 1)]
 
@@ -578,6 +580,13 @@ listDistributeOpAB op = [([op], Const 1)]
 combProdList :: (Foldable t, Num s) => t ([a], s) -> ([a], s)
 combProdList = foldr (\(ops, s) (ops', s') -> (ops ++ ops', s * s'))
                ([], fromInteger 1)
+
+-- Same as above, but sorts the factors to put them in canonical form for a
+-- commutative product.
+combCommProdList :: (Foldable t, Ord a, Num s) => t ([a], s) -> ([a], s)
+combCommProdList = foldr
+                   (\(ops, s) (ops', s') -> (Ordered.merge ops ops', s * s'))
+                   ([], fromInteger 1)
 
 expand :: Scalar -> Scalar
 expand = collectPows . listToSca . listCollect . listDistribute . pushDownConj .
