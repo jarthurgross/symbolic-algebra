@@ -60,7 +60,7 @@ instance Ord Cyclotomic where
   c <= c' = (show c) <= (show c')
 
 instance Show Scalar where
-  show (Const c) = show c
+  show (Const c) = "(" ++ show c ++ ")"
   show (Var str) = str
   show (RealVar str) = str
   show (Neg sca) = "−" ++ (showAddParen sca)
@@ -119,7 +119,18 @@ instance Num Scalar where
   (Mul scas1) * (Mul scas2) = Mul (scas1 ++ scas2)
   sca * (Mul scas) = Mul (sca:scas)
   (Mul scas) * sca = Mul (scas ++ [sca])
-  sca1 * sca2 = Mul [sca1, sca2]
+  sca1'@(Pow sca1 n) * sca2'@(Pow sca2 m)
+    | sca1 == sca2 = Pow sca1 (n + m)
+    | otherwise    = Mul [sca1', sca2']
+  sca1'@(Pow sca1 n) * sca2
+    | sca1 == sca2 = Pow sca1 (n + 1)
+    | otherwise    = Mul [sca1', sca2]
+  sca1 * sca2'@(Pow sca2 n)
+    | sca1 == sca2 = Pow sca1 (n + 1)
+    | otherwise    = Mul [sca1, sca2']
+  sca1 * sca2
+    | sca1 == sca2 = Pow sca1 2
+    | otherwise    = Mul [sca1, sca2]
   negate (Neg sca) = sca
   negate (Const c) = Const $ negate c
   negate sca = Neg sca
