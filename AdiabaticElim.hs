@@ -31,40 +31,15 @@ kp = expandOp $ p0 /*/ (b_elim /-/ a_elim /*/ yt /*/ a_elim) /*/ p0
 
 simplifyOpApps :: Op -> Op
 simplifyOpApps = converge (==) . (iterate $ expandOp . evalIProdOp .
-                                  applyNtOp' . applyLadderOp a)
+                                  applyNtOp . applyLadderOp a)
 
 simplifyNt :: Op -> Op
 simplifyNt = expandOp . evalIProdOp . (converge (==) .
              (iterate $ expandOp . applyNtOp))
 
-applyNtSca :: Scalar -> Scalar
-applyNtSca (IProd vec1 vec2) = IProd (applyNtVec vec1) (applyNtVec vec2)
-applyNtSca (Neg sca) = negate $ applyNtSca sca
-applyNtSca (Conj sca) = conjScalar $ applyNtSca sca
-applyNtSca (Pow sca n) = Pow (applyNtSca sca) n
-applyNtSca (Abs sca) = abs $ applyNtSca sca
-applyNtSca (Sgn sca) = signum $ applyNtSca sca
-applyNtSca (Add scas) = Add $ map applyNtSca scas
-applyNtSca (Mul scas) = Mul $ map applyNtSca scas
-applyNtSca sca = sca
-
-applyNtVec :: Vec -> Vec
-applyNtVec (SMulVec sca vec) = SMulVec (applyNtSca sca) (applyNtVec vec)
-applyNtVec (LeftAction op (FockVec n)) 
-  | op == nt  = if n < 2 then ZeroVec else
-                SMulVec (Const $ sqrtRat $ 1 % n) (FockVec n)
-  | otherwise = LeftAction (applyNtOp op) (FockVec n)
-applyNtVec (AddVec vecs) = AddVec $ map applyNtVec vecs
-applyNtVec vec = vec
-
 applyNtOp :: Op -> Op
-applyNtOp (OProd vec1 vec2) = OProd (applyNtVec vec1) (applyNtVec vec2)
-applyNtOp (Dag op) = dag $ applyNtOp op
-applyNtOp (SMul sca op) = SMul (applyNtSca sca) $ applyNtOp op
-applyNtOp (PowOp op n) = PowOp (applyNtOp op) n
-applyNtOp (AddOp ops) = AddOp $ map (applyNtOp) ops
-applyNtOp (MulOp ops) = MulOp $ applyNtMulList $ map (applyNtOp) ops
-applyNtOp op = op
+applyNtOp (MulOp ops) = MulOp $ applyNtMulList $ map applyNtOp ops
+applyNtOp op = travOpOp applyNtOp op
 
 applyNtMulList :: [Op] -> [Op]
 applyNtMulList ops = foldr applyRight [] ops
@@ -94,39 +69,10 @@ simplifyLadder :: Op -> Op -> Op
 simplifyLadder a = expandOp . evalIProdOp . (converge (==) .
                    (iterate $ expandOp . (applyLadderOp a)))
 
-applyLadderSca :: Op -> Scalar -> Scalar
-applyLadderSca ladder (IProd vec1 vec2) = IProd (applyLadderVec ladder vec1)
-                                          (applyLadderVec ladder vec2)
-applyLadderSca ladder (Neg sca) = negate $ applyLadderSca ladder sca
-applyLadderSca ladder (Conj sca) = conjScalar $ applyLadderSca ladder sca
-applyLadderSca ladder (Pow sca n) = Pow (applyLadderSca ladder sca) n
-applyLadderSca ladder (Abs sca) = abs $ applyLadderSca ladder sca
-applyLadderSca ladder (Sgn sca) = signum $ applyLadderSca ladder sca
-applyLadderSca ladder (Add scas) = Add $ map (applyLadderSca ladder) scas
-applyLadderSca ladder (Mul scas) = Mul $ map (applyLadderSca ladder) scas
-applyLadderSca _ sca = sca
-
-applyLadderVec :: Op -> Vec -> Vec
-applyLadderVec ladder (SMulVec sca vec) = SMulVec (applyLadderSca ladder sca)
-                                          (applyLadderVec ladder vec)
-applyLadderVec ladder (LeftAction op (FockVec n)) 
-  | op == ladder       = SMulVec (Const $ sqrtInteger n) (FockVec (n - 1))
-  | op == (dag ladder) = SMulVec (Const $ sqrtInteger $ n + 1) (FockVec (n + 1))
-  | otherwise          = LeftAction (applyLadderOp ladder op) (FockVec n)
-applyLadderVec ladder (AddVec vecs) = AddVec $ map (applyLadderVec ladder) vecs
-applyLadderVec _ vec = vec
-
 applyLadderOp :: Op -> Op -> Op
-applyLadderOp ladder (OProd vec1 vec2) = OProd (applyLadderVec ladder vec1)
-                                         (applyLadderVec ladder vec2)
-applyLadderOp ladder (Dag op) = dag $ applyLadderOp ladder op
-applyLadderOp ladder (SMul sca op) = SMul (applyLadderSca ladder sca) $
-                                     applyLadderOp ladder op
-applyLadderOp ladder (PowOp op n) = PowOp (applyLadderOp ladder op) n
-applyLadderOp ladder (AddOp ops) = AddOp $ map (applyLadderOp ladder) ops
 applyLadderOp ladder (MulOp ops) = MulOp $ applyLadderMulList ladder $ map
                                    (applyLadderOp ladder) ops
-applyLadderOp _ op = op
+applyLadderOp ladder op = travOpOp (applyLadderOp ladder) op
 
 -- Would be nice to modify this to pull scalars out separately so chains of
 -- ladder operators can be applied without running into scalars.
@@ -254,7 +200,3 @@ travOpSca fnOp (TrAB op) = TrAB $ travOpOpAB fnOp op
 travOpSca fnOp (Add scas) = sum $ map (travOpSca fnOp) scas
 travOpSca fnOp (Mul scas) = product $ map (travOpSca fnOp) scas
 travOpSca _ sca = sca
-
-applyNtOp' :: Op -> Op
-applyNtOp' (MulOp ops) = MulOp $ applyNtMulList $ map applyNtOp' ops
-applyNtOp' op = travOpOp applyNtOp' op
