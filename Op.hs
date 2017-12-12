@@ -12,6 +12,7 @@ import qualified Data.Map.Strict as Map
 data Scalar = Const Cyclotomic
             | Var String
             | RealVar String
+            | IProd Vec Vec
             | Neg Scalar
             | Conj Scalar
             | Pow Scalar Integer
@@ -32,6 +33,7 @@ data Op = ZeroOp
         | IdOp
         | OpVar String
         | HermOpVar String
+        | OProd Vec Vec
         | Dag Op
         | SMul Scalar Op
         | PowOp Op Integer
@@ -77,6 +79,7 @@ instance Show Scalar where
   show (TrAB op) = "Tr[" ++ (show op) ++ "]"
   show (Add scas) = intercalate " + " $ map show scas
   show (Mul scas) = concat $ map showAddParen scas
+  show (IProd vec1 vec2) = (braShow vec1) ++ (show vec2)
 
 toSupScr :: Integer -> String
 toSupScr n = map repl $ show n
@@ -132,6 +135,7 @@ conjScalar (Const c) = Const $ conj c
 conjScalar (Abs sca) = Abs sca
 conjScalar (Conj sca) = sca
 conjScalar (RealVar str) = RealVar str
+conjScalar (IProd vec1 vec2) = IProd vec2 vec1
 conjScalar sca = Conj sca
 
 instance Show Vec where
@@ -144,6 +148,22 @@ instance Show Vec where
 showAddParenVec :: Vec -> String
 showAddParenVec (AddVec vecs) = "(" ++ (show $ AddVec vecs) ++ ")"
 showAddParenVec vec = show vec
+
+-- Not sure this is the best way to handle things, since it seems very ad-hoc to
+-- get scalars and operators to look correct here.
+braShow :: Vec -> String
+braShow ZeroVec = "⟨\0824" ++ "0|"
+braShow (FockVec n) = "⟨" ++ (show n) ++ "|"
+braShow (VecVar str) = "⟨" ++ str ++ "|"
+braShow (SMulVec sca vec) = (showAddParen $ conjScalar sca) ++ "⋅" ++
+                            (braShowAddParenVec vec)
+braShow (LeftAction op vec) = (braShowAddParenVec vec) ++
+                              (showAddParenOp $ dag op)
+braShow (AddVec vecs) = intercalate " + " $ map braShow vecs
+
+braShowAddParenVec :: Vec -> String
+braShowAddParenVec (AddVec vecs) = "(" ++ (braShow $ AddVec vecs) ++ ")"
+braShowAddParenVec vec = braShow vec
 
 class VecSpace v where
   zerovec :: v
@@ -171,6 +191,7 @@ instance VecSpace Vec where
   ZeroOp /*| vec = zerovec
   op /*| ZeroVec = zerovec
   IdOp /*| vec = vec
+  (OProd vec1 vec2) /*| vec3 = (IProd vec2 vec3) *| vec1
   op /*| vec = LeftAction op vec
 
   ZeroVec |+| vec = vec
@@ -198,12 +219,12 @@ instance Show Op where
     OpVar s     -> (show op) ++ (toSupScr n)
     Dag op'     -> (show op) ++ (toSupScr n)
     HermOpVar s -> (show op) ++ (toSupScr n)
-
     op          -> "(" ++ (show op) ++ ")" ++ (toSupScr n)
   show (TrA op) = "Trᴬ[" ++ (show op) ++ "]"
   show (TrB op) = "Trᴮ[" ++ (show op) ++ "]"
   show (AddOp ops) = intercalate " + " $ map show ops
   show (MulOp ops) = concat $ map showAddParenOp ops
+  show (OProd vec1 vec2) = (show vec1) ++ (braShow vec2)
 
 showAddParenOp :: Op -> String
 showAddParenOp (AddOp ops) = "(" ++ (intercalate " + " $ map show ops) ++ ")"
@@ -278,6 +299,8 @@ instance Algebra Op where
   op /*/ ZeroOp = ZeroOp
   IdOp /*/ op = op
   op /*/ IdOp = op
+  (OProd vec1 vec2) /*/ (OProd vec3 vec4) = (IProd vec2 vec3) */
+                                            (OProd vec1 vec4)
   (MulOp ops1) /*/ (MulOp ops2) = MulOp (ops1 ++ ops2)
   op /*/ (MulOp ops) = MulOp (op:ops)
   (MulOp ops) /*/ op = MulOp (ops ++ [op])
@@ -294,6 +317,7 @@ instance Algebra Op where
   dag IdOp = IdOp
   dag (HermOpVar s) = HermOpVar s
   dag (Dag op) = op
+  dag (OProd vec1 vec2) = OProd vec2 vec1
   dag op = Dag op
 
   (Const 0) */ op = ZeroOp
