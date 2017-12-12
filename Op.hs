@@ -131,6 +131,17 @@ instance Num Scalar where
   signum sca = Sgn sca
   fromInteger = Const . fromInteger
 
+instance Fractional Scalar where
+  fromRational = Const . fromRational
+  recip (Const c) = Const $ recip c
+  recip (Neg sca) = negate $ recip sca
+  recip (Conj sca) = conjScalar $ recip sca
+  recip (Pow sca n) = Pow sca (-n)
+  recip (Abs sca) = abs $ recip sca
+  recip (Sgn sca) = conjScalar $ signum sca
+  recip (Mul scas) = product $ map recip scas
+  recip sca = Pow sca (-1)
+
 conjScalar :: Scalar -> Scalar
 conjScalar (Const c) = Const $ conj c
 conjScalar (Abs sca) = Abs sca
