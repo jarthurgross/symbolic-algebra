@@ -25,6 +25,7 @@ data Scalar = Const Cyclotomic
 
 data Vec = ZeroVec
          | VecVar String
+         | FockVec Integer
          | SMulVec Scalar Vec
          | LeftAction Op Vec
          | AddVec [Vec] deriving (Eq, Ord)
@@ -141,6 +142,7 @@ conjScalar sca = Conj sca
 instance Show Vec where
   show ZeroVec = "|\0824" ++ "0⟩"
   show (VecVar str) = "|" ++ str ++ "⟩"
+  show (FockVec n) = "|" ++ (show n) ++ "⟩"
   show (SMulVec sca vec) = (showAddParen sca) ++ "⋅" ++ (showAddParenVec vec)
   show (LeftAction op vec) = (showAddParenOp op) ++ (showAddParenVec vec)
   show (AddVec vecs) = intercalate " + " $ map show vecs
