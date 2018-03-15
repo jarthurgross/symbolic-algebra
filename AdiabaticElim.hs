@@ -1,37 +1,37 @@
+module AdiabaticElim where
+
 import Op
 import Data.Complex.Cyclotomic
 import Data.Ratio
 import Data.List
 import Data.Monoid
 
+k :: Op -> Op -> Op
+k h l = expandOp $ (Const (-i)) */ h /+/ (Const $ gaussianRat (-1 % 2) 0) */
+        (dag l) /*/ l
+
+a_elim :: Op -> Op -> Op -> Op
+a_elim p1 p0 k = expandOp $ p1 /*/ k /*/ p0 /+/ p0 /*/ k /*/ p1
+
+b_elim :: Op -> Op -> Op
+b_elim p0 k = expandOp $ p0 /*/ k /*/ p0
+
+f_elim :: Op -> Op -> Op
+f_elim p1 l = expandOp $ l /*/ p1
+
+g_elim :: Op -> Op -> Op
+g_elim p0 l = expandOp $ l /*/ p0
+
+kp_elim :: Op -> Op -> Op -> Op -> Op
+kp_elim p0 b a yt = expandOp $ p0 /*/ (b /-/ a /*/ yt /*/ a) /*/ p0
+
 a = OpVar "a"
-adg = dag a
-c = OpVar "c"
-cdg = dag c
-op00 = OProd (FockVec 0) (FockVec 0)
-op11 = OProd (FockVec 1) (FockVec 1)
-p0 = op00 /+/ op11
-p1 = IdOp /-/ op00 /-/ op11
-sqrtgam = RealVar "√γ"
-esq = Var "E"
-h = (Const (-i / 2)) */ (esq */ (adg /*/ adg) /+/
-    (conjScalar $ negate esq) */ (a /*/ a))
-l = sqrtgam */ a
-k = expandOp $ (Const (-i)) */ h /+/ (Const $ gaussianRat (-1 % 2) 0) */
-    (dag l) /*/ l
-a_elim = expandOp $ p1 /*/ k /*/ p0 /+/ p0 /*/ k /*/ p1
-b_elim = expandOp $ p0 /*/ k /*/ p0
-f_elim = expandOp $ l /*/ p1
-g_elim = expandOp $ l /*/ p0
-nt = HermOpVar "Ñ"
-yt = simplifyNt $ ((Const (-2)) * (sqrtgam^^(-2)) ) */ p1 /*/ (nt /-/
-     (sqrtgam^^(-2)) */ nt /*/ (esq */ adg /*/ adg /-/
-     (conjScalar esq) */ a /*/ a) /*/ nt) /*/ p1
-kp = expandOp $ p0 /*/ (b_elim /-/ a_elim /*/ yt /*/ a_elim) /*/ p0
 
 simplifyOpApps :: Op -> Op
 simplifyOpApps = converge (==) . (iterate $ expandOp . evalIProdOp .
                                   applyNtOp . applyLadderOp a)
+
+nt = HermOpVar "Ñ"
 
 simplifyNt :: Op -> Op
 simplifyNt = expandOp . evalIProdOp . (converge (==) .
