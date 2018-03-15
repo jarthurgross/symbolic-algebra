@@ -200,3 +200,48 @@ travOpSca fnOp (TrAB op) = TrAB $ travOpOpAB fnOp op
 travOpSca fnOp (Add scas) = sum $ map (travOpSca fnOp) scas
 travOpSca fnOp (Mul scas) = product $ map (travOpSca fnOp) scas
 travOpSca _ sca = sca
+
+-- Do it all again for a function that simplifies scalars sitting within any of
+-- these expressions (there still must be a better way to do this...)
+travScaOp :: (Scalar -> Scalar) -> Op -> Op
+travScaOp fnSca (OProd vec1 vec2) = OProd (travScaVec fnSca vec1)
+                                    (travScaVec fnSca vec2)
+travScaOp fnSca (Dag op) = dag (travScaOp fnSca op)
+travScaOp fnSca (SMul sca op) = (fnSca sca) */ (travScaOp fnSca op)
+travScaOp fnSca (PowOp op n) = PowOp (travScaOp fnSca op) n
+travScaOp fnSca (TrA op) = TrA (travScaOpAB fnSca op)
+travScaOp fnSca (TrB op) = TrB (travScaOpAB fnSca op)
+travScaOp fnSca (AddOp ops) = AddOp $ map (travScaOp fnSca) ops
+travScaOp fnSca (MulOp ops) = MulOp $ map (travScaOp fnSca) ops
+travScaOp _ op = op
+
+travScaOpAB :: (Scalar -> Scalar) -> OpAB -> OpAB
+travScaOpAB fnSca (DagAB op) = dag (travScaOpAB fnSca op)
+travScaOpAB fnSca (SMulAB sca op) = (fnSca sca) */ (travScaOpAB fnSca op)
+travScaOpAB fnSca (PowOpAB op n) = PowOpAB (travScaOpAB fnSca op) n
+travScaOpAB fnSca (AddOpAB ops) = AddOpAB $ map (travScaOpAB fnSca) ops
+travScaOpAB fnSca (MulOpAB ops) = MulOpAB $ map (travScaOpAB fnSca) ops
+travScaOpAB fnSca (TProd op1 op2) = TProd (travScaOp fnSca op1)
+                                    (travScaOp fnSca op2)
+travScaOpAB _ op = op
+
+travScaVec :: (Scalar -> Scalar) -> Vec -> Vec
+travScaVec fnSca (SMulVec sca vec) = (fnSca sca) *| (travScaVec fnSca vec)
+travScaVec fnSca (LeftAction op vec) = (travScaOp fnSca op) /*|
+                                       (travScaVec fnSca vec)
+travScaVec fnSca (AddVec vecs) = AddVec $ map (travScaVec fnSca) vecs
+travScaVec _ vec = vec
+
+travScaSca :: (Scalar -> Scalar) -> Scalar -> Scalar
+travScaSca fnSca (IProd vec1 vec2) = IProd (travScaVec fnSca vec1)
+                                   (travScaVec fnSca vec2)
+travScaSca fnSca (Neg sca) = negate $ fnSca sca
+travScaSca fnSca (Conj sca) = conjScalar $ fnSca sca
+travScaSca fnSca (Pow sca n) = Pow (fnSca sca) n
+travScaSca fnSca (Abs sca) = abs $ fnSca sca
+travScaSca fnSca (Sgn sca) = signum $ fnSca sca
+travScaSca fnSca (Tr op) = Tr $ tracScaOp fnSca op
+travScaSca fnSca (TrAB op) = TrAB $ travScaOpAB fnSca op
+travScaSca fnSca (Add scas) = sum $ map fnSca scas
+travScaSca fnSca (Mul scas) = product $ map fnSca scas
+travScaSca _ sca = sca
