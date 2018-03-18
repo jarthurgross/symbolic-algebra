@@ -878,3 +878,100 @@ converge :: (a -> a -> Bool) -> [a] -> a
 converge p (x:ys@(y:_))
   | p x y     = y
   | otherwise = converge p ys
+
+-- Functions needed to traverse an expression tree and apply a specified
+-- function mapping expressions to expressions when it matches a pattern. The
+-- expression mapping function should check to see if a pattern is matched and
+-- do something if so. If the pattern isn't matched it should call the travesing
+-- function again. The idea being that this should eliminate a lot of
+-- boilerplate code I'm writing. Since expressions are built out of four types,
+-- I need traversers for each type and for expression-mapping functions of each
+-- type, making for a lot of code. There's probably a simpler way of doing this,
+-- but I think it is an improvement over writing this kind of traversal each
+-- time I make a new expression-mapping function.
+
+-- Traversers for functions mapping Op to Op
+travOpOp :: (Op -> Op) -> Op -> Op
+travOpOp fnOp (OProd vec1 vec2) = OProd (travOpVec fnOp vec1)
+                                  (travOpVec fnOp vec2)
+travOpOp fnOp (Dag op) = dag (fnOp op)
+travOpOp fnOp (SMul sca op) = (travOpSca fnOp sca) */ (fnOp op)
+travOpOp fnOp (PowOp op n) = PowOp (fnOp op) n
+travOpOp fnOp (TrA op) = TrA (travOpOpAB fnOp op)
+travOpOp fnOp (TrB op) = TrB (travOpOpAB fnOp op)
+travOpOp fnOp (AddOp ops) = AddOp $ map fnOp ops
+travOpOp fnOp (MulOp ops) = MulOp $ map fnOp ops
+travOpOp _ op = op
+
+travOpOpAB :: (Op -> Op) -> OpAB -> OpAB
+travOpOpAB fnOp (DagAB op) = dag (travOpOpAB fnOp op)
+travOpOpAB fnOp (SMulAB sca op) = (travOpSca fnOp sca) */ (travOpOpAB fnOp op)
+travOpOpAB fnOp (PowOpAB op n) = PowOpAB (travOpOpAB fnOp op) n
+travOpOpAB fnOp (AddOpAB ops) = AddOpAB $ map (travOpOpAB fnOp) ops
+travOpOpAB fnOp (MulOpAB ops) = MulOpAB $ map (travOpOpAB fnOp) ops
+travOpOpAB fnOp (TProd op1 op2) = TProd (fnOp op1) (fnOp op2)
+travOpOpAB _ op = op
+
+travOpVec :: (Op -> Op) -> Vec -> Vec
+travOpVec fnOp (SMulVec sca vec) = (travOpSca fnOp sca) *| (travOpVec fnOp vec)
+travOpVec fnOp (LeftAction op vec) = (fnOp op) /*| (travOpVec fnOp vec)
+travOpVec fnOp (AddVec vecs) = AddVec $ map (travOpVec fnOp) vecs
+travOpVec _ vec = vec
+
+travOpSca :: (Op -> Op) -> Scalar -> Scalar
+travOpSca fnOp (IProd vec1 vec2) = IProd (travOpVec fnOp vec1)
+                                   (travOpVec fnOp vec2)
+travOpSca fnOp (Neg sca) = negate $ travOpSca fnOp sca
+travOpSca fnOp (Conj sca) = conjScalar $ travOpSca fnOp sca
+travOpSca fnOp (Pow sca n) = Pow (travOpSca fnOp sca) n
+travOpSca fnOp (Abs sca) = abs $ travOpSca fnOp sca
+travOpSca fnOp (Sgn sca) = signum $ travOpSca fnOp sca
+travOpSca fnOp (Tr op) = Tr $ fnOp op
+travOpSca fnOp (TrAB op) = TrAB $ travOpOpAB fnOp op
+travOpSca fnOp (Add scas) = sum $ map (travOpSca fnOp) scas
+travOpSca fnOp (Mul scas) = product $ map (travOpSca fnOp) scas
+travOpSca _ sca = sca
+
+-- Traversers for functions mapping Scalar to Scalar
+travScaOp :: (Scalar -> Scalar) -> Op -> Op
+travScaOp fnSca (OProd vec1 vec2) = OProd (travScaVec fnSca vec1)
+                                    (travScaVec fnSca vec2)
+travScaOp fnSca (Dag op) = dag (travScaOp fnSca op)
+travScaOp fnSca (SMul sca op) = (fnSca sca) */ (travScaOp fnSca op)
+travScaOp fnSca (PowOp op n) = PowOp (travScaOp fnSca op) n
+travScaOp fnSca (TrA op) = TrA (travScaOpAB fnSca op)
+travScaOp fnSca (TrB op) = TrB (travScaOpAB fnSca op)
+travScaOp fnSca (AddOp ops) = AddOp $ map (travScaOp fnSca) ops
+travScaOp fnSca (MulOp ops) = MulOp $ map (travScaOp fnSca) ops
+travScaOp _ op = op
+
+travScaOpAB :: (Scalar -> Scalar) -> OpAB -> OpAB
+travScaOpAB fnSca (DagAB op) = dag (travScaOpAB fnSca op)
+travScaOpAB fnSca (SMulAB sca op) = (fnSca sca) */ (travScaOpAB fnSca op)
+travScaOpAB fnSca (PowOpAB op n) = PowOpAB (travScaOpAB fnSca op) n
+travScaOpAB fnSca (AddOpAB ops) = AddOpAB $ map (travScaOpAB fnSca) ops
+travScaOpAB fnSca (MulOpAB ops) = MulOpAB $ map (travScaOpAB fnSca) ops
+travScaOpAB fnSca (TProd op1 op2) = TProd (travScaOp fnSca op1)
+                                    (travScaOp fnSca op2)
+travScaOpAB _ op = op
+
+travScaVec :: (Scalar -> Scalar) -> Vec -> Vec
+travScaVec fnSca (SMulVec sca vec) = (fnSca sca) *| (travScaVec fnSca vec)
+travScaVec fnSca (LeftAction op vec) = (travScaOp fnSca op) /*|
+                                       (travScaVec fnSca vec)
+travScaVec fnSca (AddVec vecs) = AddVec $ map (travScaVec fnSca) vecs
+travScaVec _ vec = vec
+
+travScaSca :: (Scalar -> Scalar) -> Scalar -> Scalar
+travScaSca fnSca (IProd vec1 vec2) = IProd (travScaVec fnSca vec1)
+                                   (travScaVec fnSca vec2)
+travScaSca fnSca (Neg sca) = negate $ fnSca sca
+travScaSca fnSca (Conj sca) = conjScalar $ fnSca sca
+travScaSca fnSca (Pow sca n) = Pow (fnSca sca) n
+travScaSca fnSca (Abs sca) = abs $ fnSca sca
+travScaSca fnSca (Sgn sca) = signum $ fnSca sca
+travScaSca fnSca (Tr op) = Tr $ travScaOp fnSca op
+travScaSca fnSca (TrAB op) = TrAB $ travScaOpAB fnSca op
+travScaSca fnSca (Add scas) = sum $ map fnSca scas
+travScaSca fnSca (Mul scas) = product $ map fnSca scas
+travScaSca _ sca = sca
