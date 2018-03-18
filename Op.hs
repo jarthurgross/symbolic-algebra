@@ -129,7 +129,7 @@ instance Num Scalar where
     | sca1 == sca2 = Pow sca1 (n + 1)
     | otherwise    = Mul [sca1, sca2']
   sca1 * sca2
-    | sca1 == sca2 = Pow sca1 2
+    | sca1 == sca2 = Pow sca1 2 -- This makes it difficult to expand powers out
     | otherwise    = Mul [sca1, sca2]
   negate (Neg sca) = sca
   negate (Const c) = Const $ negate c
@@ -387,6 +387,8 @@ instance Algebra OpAB where
 
 -- Now for some simplification algorithms
 
+-- This currently doesn't work because of the way multiplication automatically
+-- simplifies to powers.
 expandPow :: Scalar -> Scalar
 expandPow (Neg sca) = negate $ expandPow sca
 expandPow (Conj sca) = conjScalar $ expandPow sca
