@@ -55,6 +55,12 @@ instance Num Constant where
   (CProd consts1) * (CProd consts2) = CProd $ consts1 ++ consts2
   const * (CProd consts) = CProd $ const:consts
   (CProd consts) * const = CProd $ consts ++ [const]
+  -- By including rules for multiplying negated constants, we can bubble the
+  -- negations up to the top level of a product when putting things in canonical
+  -- form (e.g., distributeConst).
+  (CNeg const1) * (CNeg const2) = const1 * const2
+  (CNeg const1) * const2 = negate $ const1 * const2
+  const1 * (CNeg const2) = negate $ const1 * const2
   const1 * const2 = CProd [const1, const2]
   negate (CNeg const) = const
   negate const = CNeg const
