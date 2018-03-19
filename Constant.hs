@@ -33,11 +33,21 @@ showConstAddParen (CSum consts) = "(" ++ (intercalate "+" $
 showConstAddParen const = show const
 
 instance Num Constant where
+  (CInt 0) + const = const
+  const + (CInt 0) = const
   (CInt n) + (CInt m) = CInt $ n + m
   (CSum consts1) + (CSum consts2) = CSum $ consts1 ++ consts2
   const + (CSum consts) = CSum $ const:consts
   (CSum consts) + const = CSum $ consts ++ [const]
   const1 + const2 = CSum [const1, const2]
+
+  CI * CI = negate 1
+  (CInt 0) * const = CInt 0
+  const * (CInt 0) = CInt 0
+  (CInt 1) * const = const
+  const * (CInt 1) = const
+  (CInt (-1)) * const = negate const
+  const * (CInt (-1)) = negate const
   (CInt n) * (CInt m) = CInt $ m * n
   (CRat num1 denom1) * (CRat num2 denom2) = CRat (num1 * num2) (denom1 * denom2)
   const * (CRat num denom) = CRat (const * num) denom
@@ -50,10 +60,12 @@ instance Num Constant where
   negate const = CNeg const
   abs const = const -- Dummy implementation
   signum const = 1 -- Dummy implementation
-  fromInteger = CInt
+  fromInteger n
+    | n >= 0    = CInt n
+    | otherwise = CNeg $ CInt $ negate n
 
 instance Fractional Constant where
-  fromRational (p :% q) = CRat (CInt p) (CInt q)
+  fromRational (p :% q) = CRat (fromInteger p) (fromInteger q)
   recip (CRat num denom) = CRat denom num
   recip const = CRat (CInt 1) const
 
@@ -62,6 +74,27 @@ conjConst (CInt n) = CInt n
 conjConst (Sqrt n) = Sqrt n
 conjConst CI = CNeg CI
 conjConst const = travConstConst conjConst const
+
+pushDownNegConst :: Constant -> Constant
+pushDownNegConst (CNeg (CNeg const)) = pushDownNegConst const
+pushDownNegConst (CNeg (CRat num denom)) = CRat
+                                           (pushDownNegConst $ negate num) denom
+pushDownNegConst (CNeg (CSum consts)) = CSum $
+                                        map (pushDownNegConst . negate) consts
+pushDownNegConst (CNeg (CProd (const:consts))) = CProd $ (pushDownNegConst $
+                                                 negate const):consts
+pushDownNegConst const = travConstConst pushDownNegConst const
+
+listDistributeConst :: Constant -> [[Constant]]
+listDistributeConst (CInt 0) = []
+listDistributeConst (CSum consts) = concat $ map listDistributeConst consts
+listDistributeConst (CProd consts) = foldr (\consts1 consts2 ->
+                                            (++) <$> consts1 <*> consts2)
+                                     [[]] $ map listDistributeConst consts
+listDistributeConst const = [[const]]
+
+distributeConst :: Constant -> Constant
+distributeConst = sum . (map product) . listDistributeConst . pushDownNegConst
 
 travConstConst :: (Constant -> Constant) -> Constant -> Constant
 travConstConst fnConst (CNeg const) = CNeg $ fnConst const
