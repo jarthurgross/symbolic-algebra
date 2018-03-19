@@ -1,6 +1,5 @@
 import AdiabaticElim
 import Op
-import Data.Complex.Cyclotomic
 
 -- a = OpVar "a"
 adg = dag a
@@ -19,8 +18,7 @@ cr = RealVar "cosh(r)"
 sr = RealVar "sinh(r)"
 omega = Var "ω"
 l_sq = sqrtgam */ (cr */ a /-/ (omega * sr) */ adg)
-h = (Const (-i / 2)) */ (esq */ (adg /*/ adg) /+/
-    (conjScalar $ negate esq) */ (a /*/ a))
+h = (-i / 2) */ (esq */ (adg /*/ adg) /-/ (conjScalar $ esq) */ (a /*/ a))
 -- nt = HermOpVar "Ñ"
 yt = simplifyNt $ ((Const (-2)) * (sqrtgam^^(-2)) ) */ p1 /*/ (nt /-/
      (sqrtgam^^(-2)) */ nt /*/ (esq */ adg /*/ adg /-/
