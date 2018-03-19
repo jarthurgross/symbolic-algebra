@@ -1,13 +1,15 @@
 module AdiabaticElim where
 
 import Op
-import Data.Complex.Cyclotomic
+import Constant
 import Data.Ratio
 import Data.List
 import Data.Monoid
 
+i = Const CI
+
 k :: Op -> Op -> Op
-k h l = expandOp $ (Const (-i)) */ h /+/ (Const $ gaussianRat (-1 % 2) 0) */
+k h l = expandOp $ (-i) */ h /+/ (fromRational (-1 % 2)) */
         (dag l) /*/ l
 
 a_elim :: Op -> Op -> Op -> Op
@@ -45,22 +47,22 @@ applyNtMulList :: [Op] -> [Op]
 applyNtMulList ops = foldr applyRight [] ops
   where applyRight (PowOp op' m) ((OProd (FockVec n) vec):ops)
           | op' == nt = if n < 2 then [ZeroOp] else
-                        (SMul (Const $ sqrtRat $ 1 % n^m)
+                        (SMul (fromRational $ 1 % n^m)
                          (OProd (FockVec n) vec)):ops
           | otherwise = (PowOp op' m):(OProd (FockVec n) vec):ops
         applyRight (OProd vec (FockVec n)) ((PowOp op' m):ops)
           | op' == nt = if n < 2 then [ZeroOp] else
-                        (SMul (Const $ sqrtRat $ 1 % n^m)
+                        (SMul (fromRational $ 1 % n^m)
                          (OProd vec (FockVec n))):ops
           | otherwise = (OProd (FockVec n) vec):(PowOp op' m):ops
         applyRight op' ((OProd (FockVec n) vec):ops)
           | op' == nt = if n < 2 then [ZeroOp] else
-                        (SMul (Const $ sqrtRat $ 1 % n)
+                        (SMul (fromRational $ 1 % n)
                          (OProd (FockVec n) vec)):ops
           | otherwise = op':(OProd (FockVec n) vec):ops
         applyRight (OProd vec (FockVec n)) (op':ops)
           | op' == nt = if n < 2 then [ZeroOp] else
-                        (SMul (Const $ sqrtRat $ 1 % n)
+                        (SMul (fromRational $ 1 % n)
                          (OProd vec (FockVec n))):ops
           | otherwise = (OProd vec (FockVec n)):op':ops
         applyRight op ops = op:ops
@@ -79,40 +81,36 @@ applyLadderOp ladder op = travOpOp (applyLadderOp ladder) op
 applyLadderMulList :: Op -> [Op] -> [Op]
 applyLadderMulList ladder ops = foldr applyRight [] ops
   where applyRight (PowOp op' m) ((OProd (FockVec n) vec):ops)
-          | op' == ladder       = (SMul (Const $ sqrtInteger $
-                                         product [n-m+1..n])
+          | op' == ladder       = (SMul (Const $ Sqrt $ product [n-m+1..n])
                                    (OProd (FockVec (n - m)) vec)):ops
-          | op' == (dag ladder) = (SMul (Const $ sqrtInteger $
-                                         product [n+1..n+m])
+          | op' == (dag ladder) = (SMul (Const $ Sqrt $ product [n+1..n+m])
                                    (OProd (FockVec (n + m)) vec)):ops
           | otherwise           = (PowOp op' m):(OProd (FockVec n) vec):ops
         applyRight (OProd vec (FockVec n)) ((PowOp op' m):ops)
-          | op' == ladder       = (SMul (Const $ sqrtInteger $
-                                         product [n+1..n+m])
+          | op' == ladder       = (SMul (Const $ Sqrt $ product [n+1..n+m])
                                    (OProd vec (FockVec (n + m)))):ops
-          | op' == (dag ladder) = (SMul (Const $ sqrtInteger $
-                                         product [n-m+1..n])
+          | op' == (dag ladder) = (SMul (Const $ Sqrt $ product [n-m+1..n])
                                    (OProd vec (FockVec (n - m)))):ops
           | otherwise           = (OProd (FockVec n) vec):(PowOp op' m):ops
         applyRight op' ((OProd (FockVec n) vec):ops)
-          | op' == ladder       = (SMul (Const $ sqrtInteger n)
+          | op' == ladder       = (SMul (Const $ Sqrt n)
                                    (OProd (FockVec (n - 1)) vec)):ops
-          | op' == (dag ladder) = (SMul (Const $ sqrtInteger (n + 1))
+          | op' == (dag ladder) = (SMul (Const $ Sqrt $ n + 1)
                                    (OProd (FockVec (n + 1)) vec)):ops
           | otherwise           = op':(OProd (FockVec n) vec):ops
         applyRight (OProd vec (FockVec n)) (op':ops)
-          | op' == ladder       = (SMul (Const $ sqrtInteger (n + 1))
-                                   (OProd vec (FockVec (n + 1)))):ops
-          | op' == (dag ladder) = (SMul (Const $ sqrtInteger n)
-                                   (OProd vec (FockVec (n - 1)))):ops
-          | otherwise           = (OProd vec (FockVec n)):op':ops
+          | op' == ladder       = (SMul (Const $ Sqrt $ n + 1)
+                                   (OProd vec $ FockVec $ n + 1)):ops
+          | op' == (dag ladder) = (SMul (Const $ Sqrt n)
+                                   (OProd vec $ FockVec $ n - 1)):ops
+          | otherwise           = (OProd vec $ FockVec n):op':ops
         applyRight op ops = op:ops
         applyLeft ((OProd vec (FockVec n)):ops) op'
-          | op' == (dag ladder) = (SMul (Const $ sqrtInteger n)
-                                   (OProd vec (FockVec (n - 1)))):ops
-          | op' == ladder       = (SMul (Const $ sqrtInteger (n + 1))
-                                   (OProd vec (FockVec (n + 1)))):ops
-          | otherwise           = (OProd vec (FockVec n)):ops
+          | op' == (dag ladder) = (SMul (Const $ Sqrt n)
+                                   (OProd vec $ FockVec $ n - 1)):ops
+          | op' == ladder       = (SMul (Const $ Sqrt $ n + 1)
+                                   (OProd vec $ FockVec $ n + 1)):ops
+          | otherwise           = (OProd vec $ FockVec n):ops
         applyLeft ops op = op:ops
 
 -- Some of the AddOp/MulOp applications could perform some simplifications

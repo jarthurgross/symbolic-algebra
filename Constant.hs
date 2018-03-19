@@ -1,5 +1,7 @@
 -- Constant datatype including radicals and the imaginary unit
 
+module Constant where
+
 import Data.List
 import Data.Ratio
 import GHC.Real

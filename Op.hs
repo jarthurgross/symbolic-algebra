@@ -4,12 +4,12 @@ module Op where
 
 import Data.List
 import Data.List.Ordered as Ordered
-import Data.Complex.Cyclotomic
 import Data.Ratio
 import Control.Monad
+import Constant
 import qualified Data.Map.Strict as Map
 
-data Scalar = Const Cyclotomic
+data Scalar = Const Constant
             | Var String
             | RealVar String
             | IProd Vec Vec
@@ -54,13 +54,8 @@ data OpAB = ZeroOpAB
           | MulOpAB [OpAB]
           | TProd Op Op deriving (Eq, Ord)
 
--- Give a rather arbitrary ordering on Cyclotomics to facilitate sorting Scalar
--- and operator terms.
-instance Ord Cyclotomic where
-  c <= c' = (show c) <= (show c')
-
 instance Show Scalar where
-  show (Const c) = "(" ++ show c ++ ")"
+  show (Const c) = showConstAddParen c
   show (Var str) = str
   show (RealVar str) = str
   show (Neg sca) = "−" ++ (showAddParen sca)
@@ -78,7 +73,10 @@ instance Show Scalar where
   show (Sgn sca) = "sgn(" ++ (show sca) ++ ")"
   show (Tr op) = "Tr[" ++ (show op) ++ "]"
   show (TrAB op) = "Tr[" ++ (show op) ++ "]"
-  show (Add scas) = intercalate " + " $ map show scas
+  show (Add (sca1:(Neg sca2):scas)) = (show sca1) ++ "−" ++
+                                      (show $ Add $ sca2:scas)
+  show (Add (sca1:sca2:scas)) = (show sca1) ++ "+" ++ (show $ Add $ sca2:scas)
+  show (Add (sca:_)) = show sca
   show (Mul scas) = concat $ map showAddParen scas
   show (IProd vec1 vec2) = (braShow vec1) ++ (show vec2)
 
@@ -101,8 +99,8 @@ showAddParen (Add scas) = "(" ++ (intercalate " + " $ map show scas) ++ ")"
 showAddParen sca = show sca
 
 instance Num Scalar where
-  (Const 0) + sca = sca
-  sca + (Const 0) = sca
+  (Const (CInt 0)) + sca = sca
+  sca + (Const (CInt 0)) = sca
   (Const c1) + (Const c2) = Const $ c1 + c2
   (Add scas1) + (Add scas2) = Add (scas1 ++ scas2)
   sca + (Add scas) = Add (sca:scas)
@@ -111,10 +109,10 @@ instance Num Scalar where
   (Sgn sca) * (Abs sca')
     | sca == sca' = sca
     | otherwise   = Mul [Sgn sca, Abs sca']
-  (Const 0) * sca = Const 0
-  sca * (Const 0) = Const 0
-  (Const 1) * sca = sca
-  sca * (Const 1) = sca
+  (Const (CInt 0)) * sca = Const $ CInt 0
+  sca * (Const (CInt 0)) = Const $ CInt 0
+  (Const (CInt 1)) * sca = sca
+  sca * (Const (CInt 1)) = sca
   (Const c1) * (Const c2) = Const $ c1 * c2
   (Mul scas1) * (Mul scas2) = Mul (scas1 ++ scas2)
   sca * (Mul scas) = Mul (sca:scas)
@@ -154,7 +152,7 @@ instance Fractional Scalar where
   recip sca = Pow sca (-1)
 
 conjScalar :: Scalar -> Scalar
-conjScalar (Const c) = Const $ conj c
+conjScalar (Const c) = Const $ conjConst c
 conjScalar (Abs sca) = Abs sca
 conjScalar (Conj sca) = sca
 conjScalar (RealVar str) = RealVar str
@@ -427,7 +425,7 @@ expandPowOpAB op = op
 
 pushDownConj :: Scalar -> Scalar
 pushDownConj (Conj sca) = case sca of
-  Const c     -> Const $ conj c
+  Const c     -> Const $ conjConst c
   Var str     -> conjScalar $ Var str
   RealVar str -> RealVar str
   Neg sca'    -> Neg $ pushDownConj $ conjScalar sca'
@@ -545,8 +543,8 @@ simpTrProdListOpAB ops = algProd $ makePowOpABs $ head $ sort $ rotations ops'
   where ops' = fst $ head $ listDistributeOpAB $ expandPowOpAB $ algProd ops
 
 -- This function is designed to be called after pushDownConj and expandPow
-listDistribute :: Scalar -> [([Scalar], Cyclotomic)]
-listDistribute (Const 0) = []
+listDistribute :: Scalar -> [([Scalar], Constant)]
+listDistribute (Const (CInt 0)) = []
 listDistribute (Const c) = [([], c)]
 listDistribute (Tr op) = concat $ map trList opList
   where opList = listDistributeOp op
@@ -564,8 +562,9 @@ listDistribute (TrAB op) = concat $ map trList opList
 listDistribute (Add scas) = concat $ map listDistribute scas
 listDistribute (Mul scas) = map combCommProdList $ sequence $
                             map listDistribute scas
-listDistribute (Neg sca) = listDistribute $ (-1) * sca
-listDistribute sca = [([sca], 1)]
+listDistribute (Neg sca) = map (\ (scas, c) -> (scas, negate c)) $
+                           listDistribute sca
+listDistribute sca = [([sca], CInt 1)]
 
 listDistributeVec :: Vec -> [(([Op], Vec), Scalar)]
 listDistributeVec ZeroVec = []
@@ -735,7 +734,7 @@ makePowOpABs ops = foldr buildProd [] ops
 canonicizeScalars :: [(a, Scalar)] -> [(a, Scalar)]
 canonicizeScalars = map (\(ops, sca) -> (ops, expand sca))
 
-listToSca :: [([Scalar], Cyclotomic)] -> Scalar
+listToSca :: [([Scalar], Constant)] -> Scalar
 listToSca = sum . (map (\(scas, c) -> (Const c) * (product scas)))
 
 listToVec :: [(([Op], Vec), Scalar)] -> Vec
