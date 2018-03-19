@@ -10,7 +10,7 @@ op00 = OProd (FockVec 0) (FockVec 0)
 op11 = OProd (FockVec 1) (FockVec 1)
 p0 = op00 /+/ op11
 p1 = IdOp /-/ op00 /-/ op11
-sqrtgam = RealVar "√γ"
+sqrtgam = RealVar "√\773γ"
 esq = Var "E"
 
 -- These are the strength (r) and phase (ω) of the squeezing for the eigenbasis
