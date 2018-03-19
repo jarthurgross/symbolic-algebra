@@ -1,3 +1,5 @@
+module SqueezedBasisElim where
+
 import AdiabaticElim
 import Op
 
