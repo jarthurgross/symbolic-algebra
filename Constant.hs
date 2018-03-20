@@ -3,16 +3,17 @@
 module Constant where
 
 import Data.List
+import Data.Ord
 import Data.Ratio
 import GHC.Real
 
-data Constant = CInt Integer
+data Constant = CI
+              | CInt Integer
               | Sqrt Integer
               | CNeg Constant
               | CRat Constant Constant
-              | CI
               | CSum [Constant]
-              | CProd [Constant] deriving (Eq, Ord)
+              | CProd [Constant] deriving (Eq)
 
 instance Show Constant where
   show (CInt n) = show n
@@ -100,7 +101,45 @@ listDistributeConst (CProd consts) = foldr (\consts1 consts2 ->
 listDistributeConst const = [[const]]
 
 distributeConst :: Constant -> Constant
-distributeConst = sum . (map product) . listDistributeConst . pushDownNegConst
+distributeConst = sum . (map (product . sort)) . listDistributeConst . pushDownNegConst
+
+-- Canonical ordering of constants. Put imaginary units first (smallest), then
+-- ints, then radicals. Sums, products, and ratios compare components in order.
+instance Ord Constant where
+  compare CI CI = EQ
+  compare CI _ = LT
+  compare _ CI = GT
+  compare (CInt m) (CInt n) = compare m n
+  compare (CInt _) _ = LT
+  compare _ (CInt _) = GT
+  compare (Sqrt m) (Sqrt n) = compare m n
+  compare (Sqrt _) _ = LT
+  compare _ (Sqrt _) = GT
+  compare (CNeg const1) (CNeg const2) = compare const1 const2
+  compare (CNeg const1) const2 = case compare const1 const2 of
+                                   EQ -> LT
+                                   LT -> LT
+                                   GT -> GT
+  compare const1 (CNeg const2) = case compare const1 const2 of
+                                   EQ -> GT
+                                   LT -> LT
+                                   GT -> GT
+  compare (CRat p1 q1) (CRat p2 q2) = case compare p1 p2 of
+                                        EQ -> compare q1 q2
+                                        LT -> LT
+                                        GT -> GT
+  compare (CRat p q) const = case compare p const of
+                               EQ -> GT
+                               LT -> LT
+                               GT -> GT
+  compare const (CRat p q) = case compare const p of
+                               EQ -> LT
+                               LT -> LT
+                               GT -> GT
+  compare (CSum const1s) (CSum const2s) = compare const1s const2s
+  compare (CSum _) _ = GT
+  compare _ (CSum _) = LT
+  compare (CProd const1s) (CProd const2s) = compare const1s const2s
 
 travConstConst :: (Constant -> Constant) -> Constant -> Constant
 travConstConst fnConst (CNeg const) = CNeg $ fnConst const
